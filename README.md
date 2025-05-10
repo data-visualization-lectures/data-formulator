@@ -59,37 +59,38 @@ Data Formulatorは、アナリストがリッチなビジュアライゼーシ�
   [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/microsoft/data-formulator?quickstart=1)
 
 - **オプション 3: 開発者モードで作業**
-  
-  You can build Data Formulator locally if you prefer full control over your development environment and the ability to customize the setup to your specific needs. For detailed instructions, refer to [DEVELOPMENT.md](DEVELOPMENT.md).
 
+  開発環境を完全に制御し、特定のニーズに合わせて設定をカスタマイズしたい場合は、Data Formulator をローカルでビルドできます。
+  詳細な手順については、[DEVELOPMENT.md](DEVELOPMENT.md) を参照してください。
 
 ## Using Data Formulator
 
-Once you've completed the setup using either option, follow these steps to start using Data Formulator:
+いずれかのオプションを使用してセットアップを完了したら、次の手順に従って Data Formulator の使用を開始します:
 
 ### The basics of data visualization
-* Provide OpenAI keys and select a model (GPT-4o suggested) and choose a dataset.
-* Choose a chart type, and then drag-and-drop data fields to chart properties (x, y, color, ...) to specify visual encodings.
+* OpenAIキーを入力し、モデル（GPT-4oを推奨）を選択してデータセットを選択します。
+* チャートの種類を選択し、データフィールドをチャートのプロパティ（x、y、色など）にドラッグアンドドロップして、視覚的なエンコーディングを指定します。
 
 https://github.com/user-attachments/assets/0fbea012-1d2d-46c3-a923-b1fc5eb5e5b8
 
 
 ### Create visualization beyond the initial dataset (powered by 🤖)
-* You can type names of **fields that do not exist in current data** in the encoding shelf:
-    - this tells Data Formulator that you want to create visualizations that require computation or transformation from existing data,
-    - you can optionally provide a natural language prompt to explain and clarify your intent (not necessary when field names are self-explanatory).
-* Click the **Formulate** button.
-    - Data Formulator will transform data and instantiate the visualization based on the encoding and prompt.
-* Inspect the data, chart and code.
-* To create a new chart based on existing ones, follow up in natural language:
-    - provide a follow up prompt (e.g., *``show only top 5!''*),
-    - you may also update visual encodings for the new chart.
+* エンコーディングシェルフに、**現在のデータに存在しない** フィールドの名前を入力できます:
+    - これにより、Data Formulator は、既存のデータから計算または変換を必要とするビジュアライゼーションを作成しようとしていることを伝えます。
+    - オプションで、意図を明確にするための自然言語プロンプトを提供できます（フィールド名がわかりやすい場合は不要です）。
+
+* **Formulate** ボタンをクリックします。
+    - Data Formulator は、エンコーディングとプロンプトに基づいてデータを変換し、ビジュアライゼーションをインスタンス化します。
+* データ、チャート、コードを検査します。
+* 既存のチャートに基づいて新しいチャートを作成するには、自然言語でフォローアップします:
+    - フォローアッププロンプトを提供します (例: *「上位 5件のみを表示!」*)。
+    - 新しいチャートのビジュアルエンコーディングを更新することもできます。
 
 https://github.com/user-attachments/assets/160c69d2-f42d-435c-9ff3-b1229b5bddba
 
 https://github.com/user-attachments/assets/c93b3e84-8ca8-49ae-80ea-f91ceef34acb
 
-Repeat this process as needed to explore and understand your data. Your explorations are trackable in the **Data Threads** panel. 
+必要に応じてこのプロセスを繰り返し、データを探索して理解を深めてください。探索結果は **データスレッド** パネルで追跡できます。
 
 ## Developers' Guide
 
