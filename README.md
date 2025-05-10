@@ -21,7 +21,7 @@ Transform data and create rich visualizations iteratively with AI 🪄. Try Data
 
 
 
-## Overview
+## 概要
 
 **Data Formulator** は、Microsoft Researchのアプリケーションで、大規模言語モデルを用いてデータを変換し、データビジュアライゼーションの実践を迅速化します。
 
@@ -29,7 +29,7 @@ Data Formulatorは、アナリストがリッチなビジュアライゼーシ�
 
 
 
-## Get Started
+## はじめよう
 
 次のいずれかのオプションを使用して、Data Formulator を操作します:
 
@@ -63,18 +63,19 @@ Data Formulatorは、アナリストがリッチなビジュアライゼーシ�
   開発環境を完全に制御し、特定のニーズに合わせて設定をカスタマイズしたい場合は、Data Formulator をローカルでビルドできます。
   詳細な手順については、[DEVELOPMENT.md](DEVELOPMENT.md) を参照してください。
 
-## Using Data Formulator
+## Data Formulator を使う
 
 いずれかのオプションを使用してセットアップを完了したら、次の手順に従って Data Formulator の使用を開始します:
 
-### The basics of data visualization
+### データ化しかの基本
 * OpenAIキーを入力し、モデル（GPT-4oを推奨）を選択してデータセットを選択します。
 * チャートの種類を選択し、データフィールドをチャートのプロパティ（x、y、色など）にドラッグアンドドロップして、視覚的なエンコーディングを指定します。
 
 https://github.com/user-attachments/assets/0fbea012-1d2d-46c3-a923-b1fc5eb5e5b8
 
 
-### Create visualization beyond the initial dataset (powered by 🤖)
+### 初期データセットを超えた可視化を作成する（🤖 による）
+
 * エンコーディングシェルフに、**現在のデータに存在しない** フィールドの名前を入力できます:
     - これにより、Data Formulator は、既存のデータから計算または変換を必要とするビジュアライゼーションを作成しようとしていることを伝えます。
     - オプションで、意図を明確にするための自然言語プロンプトを提供できます（フィールド名がわかりやすい場合は不要です）。
@@ -92,9 +93,9 @@ https://github.com/user-attachments/assets/c93b3e84-8ca8-49ae-80ea-f91ceef34acb
 
 必要に応じてこのプロセスを繰り返し、データを探索して理解を深めてください。探索結果は **データスレッド** パネルで追跡できます。
 
-## Developers' Guide
+## 開発者向け手順
 
-Follow the [developers' instructions](DEVELOPMENT.md) to build your new data analysis tools on top of Data Formulator.
+[開発者向け手順](DEVELOPMENT.md) に従って、Data Formulator 上に新しいデータ分析ツールを構築します。
 
 ## Research Papers
 * [Data Formulator 2: Iteratively Creating Rich Visualizations with AI](https://arxiv.org/abs/2408.16119)
