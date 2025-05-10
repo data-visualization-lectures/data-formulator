@@ -35,8 +35,8 @@ Data Formulatorは、アナリストがリッチなビジュアライゼーシ�
 
 - **オプション 1: Python PIP 経由でインストール**
   
-  Use Python PIP for an easy setup experience, running locally (recommend: install it in a virtual environment).
-  
+  Python PIP を使用すると、簡単にセットアップでき、ローカルで実行できます (推奨: 仮想環境にインストールします)。
+
   ```bash
   # install data_formulator
   pip install data_formulator
