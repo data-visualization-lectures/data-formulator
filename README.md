@@ -23,15 +23,17 @@ Transform data and create rich visualizations iteratively with AI 🪄. Try Data
 
 ## Overview
 
-**Data Formulator** is an application from Microsoft Research that uses large language models to transform data, expediting the practice of data visualization.
+**Data Formulator** は、Microsoft Researchのアプリケーションで、大規模言語モデルを用いてデータを変換し、データビジュアライゼーションの実践を迅速化します。
 
-Data Formulator is an AI-powered tool for analysts to iteratively create rich visualizations. Unlike most chat-based AI tools where users need to describe everything in natural language, Data Formulator combines *user interface interactions (UI)* and *natural language (NL) inputs* for easier interaction. This blended approach makes it easier for users to describe their chart designs while delegating data transformation to AI. 
+Data Formulatorは、アナリストがリッチなビジュアライゼーションを反復的に作成するためのAI搭載ツールです。ユーザーがすべてを自然言語で記述する必要がある多くのチャットベースのAIツールとは異なり、Data Formulatorはユーザーインターフェースインタラクション（UI）と自然言語（NL）入力を組み合わせることで、より簡単なインタラクションを実現します。この融合型アプローチにより、ユーザーはチャートデザインを簡単に記述しながら、データ変換をAIに委任することができます。
+
+
 
 ## Get Started
 
-Play with Data Formulator with one of the following options:
+次のいずれかのオプションを使用して、Data Formulator を操作します:
 
-- **Option 1: Install via Python PIP**
+- **オプション 1: Python PIP 経由でインストール**
   
   Use Python PIP for an easy setup experience, running locally (recommend: install it in a virtual environment).
   
@@ -50,13 +52,13 @@ Play with Data Formulator with one of the following options:
 
   *Update: you can specify the port number (e.g., 8080) by `python -m data_formulator --port 8080` if the default port is occupied.*
 
-- **Option 2: Codespaces (5 minutes)**
+- **オプション 2: Codespaces (5 分)**
   
   You can also run Data Formulator in Codespaces; we have everything pre-configured. For more details, see [CODESPACES.md](CODESPACES.md).
   
   [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/microsoft/data-formulator?quickstart=1)
 
-- **Option 3: Working in the developer mode**
+- **オプション 3: 開発者モードで作業**
   
   You can build Data Formulator locally if you prefer full control over your development environment and the ability to customize the setup to your specific needs. For detailed instructions, refer to [DEVELOPMENT.md](DEVELOPMENT.md).
 
