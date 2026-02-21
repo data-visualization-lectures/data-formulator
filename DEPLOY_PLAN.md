@@ -278,26 +278,92 @@ def run_app():
 
 ### タスク 9: Railway デプロイ設定
 
-**作成ファイル:** `railway.toml`
+**ファイル:** `railway.toml`
 
 ```toml
 [build]
-builder = "nixpacks"
+builder = "RAILPACK"
 
 [deploy]
-startCommand = "gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --worker-class sync 'data_formulator.app:app'"
+startCommand = "PYTHONPATH=/app/py-src gunicorn data_formulator.app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 ```
 
-> `--worker-class sync` は `multiprocessing.Process`（py_sandbox.py）との互換性のため必須
-
-**`requirements.txt` に追加:**
+**`requirements.txt`（抜粋）:**
 ```
 PyJWT>=2.8.0
 gunicorn>=21.0.0
 ```
+
+> ⚠️ `requirements.txt` に `.` を追加してパッケージ自体をインストールする方法は **機能しない**。
+> RAILPACK は `pip install -r requirements.txt` をソースファイルが存在しない一時環境で実行するため、
+> `py-src` ディレクトリが見つからずエラーになる。
+> 代わりに `startCommand` に `PYTHONPATH=/app/py-src` を設定して解決する。
+
+---
+
+### タスク 9-補足: Railway デプロイ ハマりポイント集
+
+実際のデプロイで発生したエラーと解決策をまとめる。
+
+#### ❌ 問題1: nixpacks が deprecated
+
+```
+NIXPACKS builder is deprecated
+```
+
+**原因:** Railway が NIXPACKS ビルダーのサポートを終了。
+**解決:** `railway.toml` の `builder = "nixpacks"` を `builder = "RAILPACK"` に変更。
+
+---
+
+#### ❌ 問題2: `ModuleNotFoundError: No module named 'data_formulator'`
+
+```
+ModuleNotFoundError: No module named 'data_formulator'
+gunicorn.errors.HaltServer: <HaltServer 'Worker failed to boot.'>
+```
+
+**原因:** `data_formulator` パッケージ本体が Python パスに存在しない。
+`requirements.txt` は依存ライブラリのみを列挙しており、パッケージ自体はインストールされない。
+
+**試みたが失敗した解決策:**
+- `requirements.txt` に `.` を追加 → RAILPACK はソースが存在しない一時環境で pip を実行するため、
+  `py-src` が見つからず `error: error in 'egg_base' option: 'py-src' does not exist` が発生。
+
+**正しい解決策:** `startCommand` に `PYTHONPATH=/app/py-src` を設定する。
+
+```toml
+startCommand = "PYTHONPATH=/app/py-src gunicorn data_formulator.app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
+```
+
+---
+
+#### ❌ 問題3: 環境変数を設定してもモデルが自動登録されない
+
+**原因:** `check-available-models` エンドポイントが、環境変数を読み込んだ後に
+実際に OpenAI API を呼び出して「I can hear you.」という返答を確認できたモデルだけを登録する
+という設計になっていた。このテスト呼び出しが以下の理由で失敗することがあった：
+- レート制限・クォータ超過
+- ネットワークタイムアウト（フロントエンド側の 20 秒制限）
+- モデルが微妙に異なる文面で応答した場合
+
+**解決策:** テスト呼び出しを廃止し、環境変数が揃っていれば即座にモデルを登録するよう変更
+（`py-src/data_formulator/agent_routes.py` の `check_available_models` 関数）。
+
+---
+
+**Railway 環境変数（必須）:**
+
+| 変数名 | 値の例 | 説明 |
+|--------|--------|------|
+| `SUPABASE_JWT_SECRET` | Supabase > Settings > API > JWT Secret | 認証用。未設定だとローカル開発モード（認証スキップ） |
+| `ALLOWED_ORIGINS` | `https://data-formulator.dataviz.jp` | CORS 許可オリジン |
+| `OPENAI_ENABLED` | `true` | OpenAI を有効化（**必須**、これがないとスキップされる） |
+| `OPENAI_API_KEY` | `sk-xxxx` | OpenAI API キー |
+| `OPENAI_MODELS` | `gpt-4o,gpt-4o-mini` | 使用するモデル名をカンマ区切りで指定（**必須**） |
 
 ---
 
