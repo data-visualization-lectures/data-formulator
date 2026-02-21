@@ -19,9 +19,43 @@ export interface PopupConfig {
     jsUrl?: string;
 }
 
-export const appConfig: AppConfig = {
-    serverUrl:  process.env.NODE_ENV == "production" ? "./" : "http://127.0.0.1:5000/",
+const resolveServerUrl = (): string => {
+    if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL as string;
+    if (import.meta.env.PROD) return "./";
+    return "http://127.0.0.1:5000/";
 };
+
+export const appConfig: AppConfig = {
+    serverUrl: resolveServerUrl(),
+};
+
+/**
+ * Supabase アクセストークンを取得する。
+ * window.datavizSupabase は dataviz-auth-client.js により注入される。
+ */
+export async function getSupabaseToken(): Promise<string | null> {
+    const supabase = (window as any).datavizSupabase;
+    if (!supabase) return null;
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token ?? null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Authorization ヘッダー付きの fetch ラッパー。
+ * datavizSupabase が未初期化の場合はヘッダーなしで通常 fetch する。
+ */
+export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+    const token = await getSupabaseToken();
+    const headers: Record<string, string> = {
+        ...(options.headers as Record<string, string> ?? {}),
+    };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return fetch(url, { ...options, headers });
+}
 
 export function assignAppConfig(config: AppConfig) {
     //assign the new config to the appConfig

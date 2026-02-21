@@ -406,3 +406,10 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 venv
+_documents/システム構成図.png
+_documents/QUICKSTART.md
+_documents/api_toolbar/TOOL_SIDE_FILE_SPECIFICATIONS.md
+_documents/api_projects/TOOL_INTEGRATION_GUIDE.md
+_documents/api_projects/SUPABASE PUBLIC_TABLES.md
+_documents/api_projects/CLIENT_INTEGRATION_GUIDE.md
+_documents/api_projects/API_SPECIFICATION.md

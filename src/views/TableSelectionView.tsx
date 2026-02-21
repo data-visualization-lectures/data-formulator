@@ -16,7 +16,7 @@ import { CustomReactTable } from './ReactTable';
 import { DictTable } from "../components/ComponentType";
 
 import DeleteIcon from '@mui/icons-material/Delete';
-import { getUrls } from '../app/utils';
+import { getUrls, authenticatedFetch } from '../app/utils';
 import { createTableFromFromObjectArray, createTableFromText, loadDataWrapper } from '../data/utils';
 
 import CloseIcon from '@mui/icons-material/Close';
@@ -173,7 +173,7 @@ export const TableSelectionDialog: React.FC<{ buttonElement: any }> = function T
 
     React.useEffect(() => {
         // Show a loading animation/message while loading
-        fetch(`${getUrls().VEGA_DATASET_LIST}`)
+        authenticatedFetch(`${getUrls().VEGA_DATASET_LIST}`)
             .then((response) => response.json())
             .then((result) => {
                 let tableChallenges : TableChallenges[] = result.map((info: any) => {
@@ -216,7 +216,7 @@ export const TableSelectionDialog: React.FC<{ buttonElement: any }> = function T
                             // request public datasets from the server
                         console.log(tableChallenges);
                         console.log(`${getUrls().VEGA_DATASET_REQUEST_PREFIX}${tableChallenges.table.id}`)
-                        fetch(`${getUrls().VEGA_DATASET_REQUEST_PREFIX}${tableChallenges.table.id}`)
+                        authenticatedFetch(`${getUrls().VEGA_DATASET_REQUEST_PREFIX}${tableChallenges.table.id}`)
                             .then((response) => {
                                 return response.text()
                             })

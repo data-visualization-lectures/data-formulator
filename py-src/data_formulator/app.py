@@ -17,8 +17,10 @@ import pandas as pd
 
 import webbrowser
 import threading
+from functools import wraps
 
 from flask_cors import CORS
+import jwt as pyjwt
 
 import json
 import time
@@ -51,41 +53,126 @@ load_dotenv(os.path.join(APP_ROOT, 'openai-keys.env'))
 import os
 
 app = Flask(__name__, static_url_path='', static_folder=os.path.join(APP_ROOT, "dist"))
-CORS(app)
+
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5000").split(",")
+CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
+
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
+
+def require_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not SUPABASE_JWT_SECRET:  # ローカル開発時はスキップ
+            return f(*args, **kwargs)
+        auth = request.headers.get('Authorization', '')
+        if not auth.startswith('Bearer '):
+            return flask.jsonify({'error': 'Missing token'}), 401
+        try:
+            pyjwt.decode(auth.split(' ', 1)[1], SUPABASE_JWT_SECRET,
+                         algorithms=["HS256"], options={"verify_aud": False})
+        except pyjwt.InvalidTokenError as e:
+            return flask.jsonify({'error': str(e)}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+@app.route('/health')
+def health_check():
+    return flask.jsonify({'status': 'ok'}), 200
 
 @app.route('/vega-datasets')
+@require_auth
 def get_example_dataset_list():
     dataset_names = vega_data.list_datasets()
     example_datasets = [
         {"name": "gapminder", "challenges": [
-            {"text": "Create a line chart to show the life expectancy trend of each country over time.", "difficulty": "easy"},
-            {"text": "Visualize the top 10 countries with highest life expectancy in 2005.", "difficulty": "medium"},
-            {"text": "Find top 10 countries that have the biggest difference of life expectancy in 1955 and 2005.", "difficulty": "hard"},
-            {"text": "Rank countries by their average population per decade. Then only show countries with population over 50 million in 2005.", "difficulty": "hard"}
+            {
+                "text": "各国の平均寿命（the life expectancy）の推移を時系列の折れ線グラフで作成してください。",
+                "difficulty": "easy"
+            },
+            {
+                "text": "2005年の平均寿命（the life expectancy）が最も高い上位10か国を可視化してください。",
+                "difficulty": "medium"
+            },
+            {
+                "text": "1955年と2005年の平均寿命（the life expectancy）の差が最も大きい上位10か国を見つけてください。",
+                "difficulty": "hard"
+            },
+            {
+                "text": "各国の10年ごとの平均人口をランキングし、2005年に人口が5000万人以上の国のみを表示してください。",
+                "difficulty": "hard"
+            }
         ]},
         {"name": "income", "challenges": [
-            {"text": "Create a line chart to show the income trend of each state over time.", "difficulty": "easy"},
-            {"text": "Only show washington and california's percentage of population in each income group each year.", "difficulty": "medium"},
-            {"text": "Find the top 5 states with highest percentage of high income group in 2016.", "difficulty": "hard"}
+            {
+                "text": "各州の所得の推移を時系列の折れ線グラフで作成してください。",
+                "difficulty": "easy"
+            },
+            {
+                "text": "ワシントン州とカリフォルニア州の各年の所得グループごとの人口割合のみを表示してください。",
+                "difficulty": "medium"
+            },
+            {
+                "text": "2016年に高所得グループの割合が最も高い上位5州を見つけてください。",
+                "difficulty": "hard"
+            }
         ]},
         {"name": "disasters", "challenges": [
-            {"text": "Create a scatter plot to show the number of death from each disaster type each year.", "difficulty": "easy"},
-            {"text": "Filter the data and show the number of death caused by flood or drought each year.", "difficulty": "easy"},
-            {"text": "Create a heatmap to show the total number of death caused by each disaster type each decade.", "difficulty": "hard"},
-            {"text": "Exclude 'all natural disasters' from the previous chart.", "difficulty": "medium"}
+            {
+                "text": "各年の災害タイプごとの死亡者数を示す散布図を作成してください。",
+                "difficulty": "easy"
+            },
+            {
+                "text": "データをフィルタリングし、洪水または干ばつによる年間死亡者数のみを表示してください。",
+                "difficulty": "easy"
+            },
+            {
+                "text": "各災害タイプごとの10年ごとの総死亡者数を示すヒートマップを作成してください。",
+                "difficulty": "hard"
+            },
+            {
+                "text": "前のヒートマップから「全自然災害」のカテゴリを除外してください。",
+                "difficulty": "medium"
+            }
         ]},
         {"name": "movies", "challenges": [
-            {"text": "Create a scatter plot to show the relationship between budget and worldwide gross.", "difficulty": "easy"},
-            {"text": "Find the top 10 movies with highest profit after 2000 and visualize them in a bar chart.", "difficulty": "easy"},
-            {"text": "Visualize the median profit ratio of movies in each genre", "difficulty": "medium"},
-            {"text": "Create a scatter plot to show the relationship between profit and IMDB rating.", "difficulty": "medium"},
-            {"text": "Turn the above plot into a heatmap by bucketing IMDB rating and profit, color tiles by the number of movies in each bucket.", "difficulty": "hard"}
+            {
+                "text": "予算と世界興行収入の関係を示す散布図を作成してください。",
+                "difficulty": "easy"
+            },
+            {
+                "text": "2000年以降で最も利益が高い上位10本の映画を見つけ、棒グラフで視覚化してください。",
+                "difficulty": "easy"
+            },
+            {
+                "text": "各ジャンルの映画の中央値の利益率を視覚化してください。",
+                "difficulty": "medium"
+            },
+            {
+                "text": "利益とIMDB評価の関係を示す散布図を作成してください。",
+                "difficulty": "medium"
+            },
+            {
+                "text": "上記の散布図をヒートマップに変換し、IMDB評価と利益を区間ごとに分類し、各区間の映画の本数を色で表してください。",
+                "difficulty": "hard"
+            }
         ]},
         {"name": "unemployment-across-industries", "challenges": [
-            {"text": "Create a scatter plot to show the relationship between unemployment rate and year.", "difficulty": "easy"},
-            {"text": "Create a line chart to show the average unemployment per year for each industry.", "difficulty": "medium"},
-            {"text": "Find the 5 most stable industries (least change in unemployment rate between 2000 and 2010) and visualize their trend over time using line charts.", "difficulty": "medium"},
-            {"text": "Create a bar chart to show the unemployment rate change between 2000 and 2010, and highlight the top 5 most stable industries with least change.", "difficulty": "hard"}
+            {
+                "text": "失業率と年の関係を示す散布図を作成してください。",
+                "difficulty": "easy"
+            },
+            {
+                "text": "各業界の年間平均失業率を示す折れ線グラフを作成してください。",
+                "difficulty": "medium"
+            },
+            {
+                "text": "2000年から2010年の間で失業率の変動が最も少ない5つの安定した業界を見つけ、それらの推移を折れ線グラフで視覚化してください。",
+                "difficulty": "medium"
+            },
+            {
+                "text": "2000年から2010年の失業率の変化を示す棒グラフを作成し、変動が最も少ない5つの安定した業界を強調表示してください。",
+                "difficulty": "hard"
+            }
         ]}
     ]
     dataset_info = []
@@ -99,11 +186,10 @@ def get_example_dataset_list():
         except:
             pass
     
-    response = flask.jsonify(dataset_info)
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    return response
+    return flask.jsonify(dataset_info)
 
 @app.route('/vega-dataset/<path:path>')
+@require_auth
 def get_datasets(path):
     try:
         df = vega_data(path)
@@ -117,6 +203,7 @@ def get_datasets(path):
     return response
 
 @app.route('/check-available-models', methods=['GET', 'POST'])
+@require_auth
 def check_available_models():
 
     results = []
@@ -153,6 +240,7 @@ def check_available_models():
     return json.dumps(results)
 
 @app.route('/test-model', methods=['GET', 'POST'])
+@require_auth
 def test_model():
     
     if request.is_json:
@@ -262,6 +350,7 @@ def streamed_response():
 ###### agent related functions ######
 
 @app.route('/process-data-on-load', methods=['GET', 'POST'])
+@require_auth
 def process_data_on_load_request():
 
     if request.is_json:
@@ -282,11 +371,11 @@ def process_data_on_load_request():
     else:
         response = flask.jsonify({ "token": -1, "status": "error", "result": [] })
 
-    response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
 
 @app.route('/derive-concept-request', methods=['GET', 'POST'])
+@require_auth
 def derive_concept_request():
 
     if request.is_json:
@@ -311,11 +400,11 @@ def derive_concept_request():
     else:
         response = flask.jsonify({ "token": -1, "status": "error", "result": [] })
 
-    response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
 
 @app.route('/clean-data', methods=['GET', 'POST'])
+@require_auth
 def clean_data_request():
 
     if request.is_json:
@@ -338,11 +427,11 @@ def clean_data_request():
     else:
         response = flask.jsonify({ "token": -1, "status": "error", "result": [] })
 
-    response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
 
 @app.route('/codex-sort-request', methods=['GET', 'POST'])
+@require_auth
 def sort_data_request():
 
     if request.is_json:
@@ -363,11 +452,11 @@ def sort_data_request():
     else:
         response = flask.jsonify({ "token": -1, "status": "error", "result": [] })
 
-    response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
 
 @app.route('/derive-data', methods=['GET', 'POST'])
+@require_auth
 def derive_data():
 
     if request.is_json:
@@ -418,10 +507,10 @@ def derive_data():
     else:
         response = flask.jsonify({ "token": "", "status": "error", "results": [] })
 
-    response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
 @app.route('/refine-data', methods=['GET', 'POST'])
+@require_auth
 def refine_data():
 
     if request.is_json:
@@ -459,10 +548,10 @@ def refine_data():
     else:
         response = flask.jsonify({ "token": "", "status": "error", "results": []})
 
-    response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
 @app.route('/code-expl', methods=['GET', 'POST'])
+@require_auth
 def request_code_expl():
     if request.is_json:
         app.logger.info("# request data: ")
@@ -492,11 +581,13 @@ def parse_args() -> argparse.Namespace:
 
 def run_app():
     args = parse_args()
-
-    url = "http://localhost:{0}".format(args.port)
-    threading.Timer(2, lambda: webbrowser.open(url, new=2)).start()
-
-    app.run(host='0.0.0.0', port=args.port, threaded=True)
+    port = args.port or int(os.getenv("PORT", 5000))
+    is_cloud = os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("PORT")
+    if not is_cloud:
+        url = "http://localhost:{0}".format(port)
+        threading.Timer(2, lambda: webbrowser.open(url, new=2)).start()
+    debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    app.run(host='0.0.0.0', port=port, threaded=True, debug=debug)
     
 if __name__ == '__main__':
     #app.run(debug=True, host='127.0.0.1', port=5000)

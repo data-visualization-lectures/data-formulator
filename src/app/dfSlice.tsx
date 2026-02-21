@@ -9,7 +9,7 @@ import { Message } from '../views/MessageSnackbar';
 import { getChartTemplate, getChartChannels } from "../components/ChartTemplates"
 import { getDataTable } from '../views/VisualizationView';
 import { findBaseFields } from '../views/ViewUtils';
-import { adaptChart, getTriggers, getUrls } from './utils';
+import { adaptChart, getTriggers, getUrls, authenticatedFetch } from './utils';
 import { Type } from '../data/types';
 import { TableChallenges } from '../views/TableSelectionView';
 
@@ -155,7 +155,7 @@ export const fetchFieldSemanticType = createAsyncThunk(
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), 20000)
 
-        let response = await fetch(getUrls().SERVER_PROCESS_DATA_ON_LOAD, {...message, signal: controller.signal })
+        let response = await authenticatedFetch(getUrls().SERVER_PROCESS_DATA_ON_LOAD, {...message, signal: controller.signal })
 
         return response.json();
     }
@@ -185,7 +185,7 @@ export const fetchCodeExpl = createAsyncThunk(
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), 20000)
 
-        let response = await fetch(getUrls().CODE_EXPL_URL, {...message, signal: controller.signal })
+        let response = await authenticatedFetch(getUrls().CODE_EXPL_URL, {...message, signal: controller.signal })
 
         return response.text();
     }
@@ -207,7 +207,7 @@ export const fetchAvailableModels = createAsyncThunk(
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), 20000)
 
-        let response = await fetch(getUrls().CHECK_AVAILABLE_MODELS, {...message, signal: controller.signal })
+        let response = await authenticatedFetch(getUrls().CHECK_AVAILABLE_MODELS, {...message, signal: controller.signal })
 
         return response.json();
     }

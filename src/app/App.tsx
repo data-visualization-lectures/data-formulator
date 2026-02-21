@@ -51,7 +51,7 @@ import {
 } from "react-router-dom";
 import { About } from '../views/About';
 import { MessageSnackbar } from '../views/MessageSnackbar';
-import { appConfig, assignAppConfig, getUrls, PopupConfig } from './utils';
+import { appConfig, assignAppConfig, getUrls, getSupabaseToken, PopupConfig } from './utils';
 import { DictTable } from '../components/ComponentType';
 import { AppDispatch } from './store';
 import { ActionSubscription, subscribe, unsubscribe } from './embed';
@@ -158,8 +158,84 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
 
     const [popupConfig, setPopupConfig] = useState<PopupConfig>({ });
 
+    // プロジェクト保存/読込
+    const fullStateJson = useSelector((state: DataFormulatorState) => JSON.stringify(state));
+    const [projectLoadDialogOpen, setProjectLoadDialogOpen] = useState<boolean>(false);
+    const [projectList, setProjectList] = useState<any[]>([]);
+
+    const DATAVIZ_API = 'https://api.dataviz.jp';
+    const APP_NAME = 'data-formulator';
+
+    const saveProject = async () => {
+        const token = await getSupabaseToken();
+        if (!token) return;
+        const params = new URLSearchParams(window.location.search);
+        const existingProjectId = params.get('project_id');
+        const body = {
+            name: `Data Formulator - ${new Date().toLocaleString('ja-JP')}`,
+            app_name: APP_NAME,
+            data: fullStateJson,
+        };
+        const method = existingProjectId ? 'PUT' : 'POST';
+        const url = existingProjectId
+            ? `${DATAVIZ_API}/api/projects/${existingProjectId}`
+            : `${DATAVIZ_API}/api/projects`;
+        const response = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(body),
+        });
+        const toolHeader = document.querySelector('dataviz-tool-header') as any;
+        if (response.ok) {
+            const saved = await response.json();
+            if (!existingProjectId && saved.project?.id) {
+                const newUrl = new URL(window.location.href);
+                newUrl.searchParams.set('project_id', saved.project.id);
+                window.history.replaceState({}, '', newUrl.toString());
+            }
+            toolHeader?.showMessage('プロジェクトを保存しました', 'success');
+        } else {
+            toolHeader?.showMessage('保存に失敗しました', 'error');
+        }
+    };
+
+    const loadProject = async () => {
+        const token = await getSupabaseToken();
+        if (!token) return;
+        const response = await fetch(`${DATAVIZ_API}/api/projects?app=${APP_NAME}`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        setProjectList(data.projects || []);
+        setProjectLoadDialogOpen(true);
+    };
+
+    const loadProjectById = async (projectId: string) => {
+        const token = await getSupabaseToken();
+        if (!token) return;
+        const response = await fetch(`${DATAVIZ_API}/api/projects/${projectId}`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!response.ok) return;
+        const project = await response.json();
+        try {
+            const savedState = JSON.parse(project.data ?? project);
+            dispatch(dfActions.loadState(savedState));
+            const newUrl = new URL(window.location.href);
+            newUrl.searchParams.set('project_id', projectId);
+            window.history.replaceState({}, '', newUrl.toString());
+            const toolHeader = document.querySelector('dataviz-tool-header') as any;
+            toolHeader?.showMessage('プロジェクトを読み込みました', 'success');
+            setProjectLoadDialogOpen(false);
+        } catch {
+            const toolHeader = document.querySelector('dataviz-tool-header') as any;
+            toolHeader?.showMessage('読み込みに失敗しました', 'error');
+        }
+    };
+
     const dispatch = useDispatch<AppDispatch>();
-    
+
     useEffect(() => {
         const subscription: ActionSubscription = {
             loadData: (table: DictTable) => {
@@ -177,26 +253,66 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
         };
     }, []);
 
+    // dataviz.jp 認証からユーザー情報を取得
     useEffect(() => {
-        fetch('/.auth/me')
-        .then(function(response) { return response.json(); })
-        .then(function(result) {
-            if (Array.isArray(result) && result.length > 0) {
-                let authInfo = result[0];
-                let userInfo = {
-                    name: authInfo['user_claims'].find((item: any) => item.typ == 'name')?.val || '',
-                    userId: authInfo['user_id']
-                }
-                setUserInfo(userInfo);
-                // console.log("logging info")
-                // console.log(userInfo);
+        const checkAuth = async () => {
+            await new Promise<void>((resolve) => {
+                if ((window as any).datavizSupabase) { resolve(); return; }
+                const t = setInterval(() => {
+                    if ((window as any).datavizSupabase) { clearInterval(t); resolve(); }
+                }, 100);
+                setTimeout(() => { clearInterval(t); resolve(); }, 5000);
+            });
+            const token = await getSupabaseToken();
+            if (!token) return;
+            const supabase = (window as any).datavizSupabase;
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                setUserInfo({
+                    name: session.user.user_metadata?.full_name || session.user.email || '',
+                    userId: session.user.id,
+                });
             }
-            
-        }).catch(err => {
-            //user is not logged in, do not show logout button
-            //console.error(err)
-        });
-    }, [])
+        };
+        checkAuth();
+    }, []);
+
+    // dataviz-tool-header のセットアップ
+    useEffect(() => {
+        const setup = () => {
+            const toolHeader = document.querySelector('dataviz-tool-header') as any;
+            if (!toolHeader) return;
+            toolHeader.setConfig({
+                logo: { type: 'text', text: 'Data Formulator' },
+                buttons: [
+                    { label: '保存', action: saveProject },
+                    { label: '読込', action: loadProject },
+                ],
+            });
+        };
+        if (customElements.get('dataviz-tool-header')) {
+            setup();
+        } else {
+            customElements.whenDefined('dataviz-tool-header').then(setup);
+        }
+    }, []);
+
+    // ?project_id URLパラメータで起動時に自動読込
+    useEffect(() => {
+        const autoLoad = async () => {
+            const projectId = new URLSearchParams(window.location.search).get('project_id');
+            if (!projectId) return;
+            await new Promise<void>((resolve) => {
+                if ((window as any).datavizSupabase) { resolve(); return; }
+                const t = setInterval(() => {
+                    if ((window as any).datavizSupabase) { clearInterval(t); resolve(); }
+                }, 100);
+                setTimeout(() => { clearInterval(t); resolve(); }, 5000);
+            });
+            await loadProjectById(projectId);
+        };
+        autoLoad();
+    }, []);
 
     const [resetDialogOpen, setResetDialogOpen] = useState<boolean>(false);
 
@@ -303,6 +419,27 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
                         <DialogActions>
                             <Button onClick={()=>{dispatch(dfActions.resetState()); setResetDialogOpen(false);}} endIcon={<PowerSettingsNewIcon />}>reset session </Button>
                             <Button onClick={()=>{setResetDialogOpen(false);}}>cancel</Button>
+                        </DialogActions>
+                    </Dialog>
+                    <Dialog onClose={()=>{setProjectLoadDialogOpen(false)}} open={projectLoadDialogOpen}
+                        sx={{ '& .MuiDialog-paper': { minWidth: 420 } }}
+                    >
+                        <DialogTitle>プロジェクトを読み込む</DialogTitle>
+                        <DialogContent>
+                            {projectList.length === 0
+                                ? <DialogContentText>保存済みのプロジェクトがありません</DialogContentText>
+                                : projectList.map((p: any) => (
+                                    <Box key={p.id} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                                        <Button variant="text" sx={{ textTransform: 'none', textAlign: 'left', flex: 1 }}
+                                            onClick={() => loadProjectById(p.id)}>
+                                            {p.name}
+                                        </Button>
+                                    </Box>
+                                ))
+                            }
+                        </DialogContent>
+                        <DialogActions>
+                            <Button onClick={()=>{setProjectLoadDialogOpen(false);}}>キャンセル</Button>
                         </DialogActions>
                     </Dialog>
                     {userInfo && <>

@@ -52,7 +52,7 @@ import { DataFormulatorState, dfActions, dfSelectors } from '../app/dfSlice';
 import Editor from 'react-simple-code-editor';
 
 import { DisambiguationDialog, simpleTableView } from './DisambiguationDialog';
-import { getUrls } from '../app/utils';
+import { getUrls, authenticatedFetch } from '../app/utils';
 import { deriveTransformExamplesV2, getDomains, getIconFromType, processCodeCandidates } from './ViewUtils';
 
 
@@ -916,7 +916,7 @@ export const CodexDialogBox: FC<CodexDialogBoxProps> = function ({
                 const controller = new AbortController()
                 const timeoutId = setTimeout(() => controller.abort(), 20000)
 
-                fetch(getUrls().DERIVE_CONCEPT_URL, {...message, signal: controller.signal })
+                authenticatedFetch(getUrls().DERIVE_CONCEPT_URL, {...message, signal: controller.signal })
                     .then((response) => response.json())
                     .then((data) => {
                         console.log("---model output")

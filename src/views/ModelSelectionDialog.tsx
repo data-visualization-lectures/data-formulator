@@ -51,7 +51,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 
-import { getUrls } from '../app/utils';
+import { getUrls, authenticatedFetch } from '../app/utils';
 
 export const GroupHeader = styled('div')(({ theme }) => ({
     position: 'sticky',
@@ -102,7 +102,7 @@ export const ModelSelectionButton: React.FC<{}> = ({ }) => {
                 endpoint: endpoint
             }),
         };
-        fetch(getUrls().TEST_MODEL, {...message })
+        authenticatedFetch(getUrls().TEST_MODEL, {...message })
             .then((response) => response.json())
             .then((data) => {
                 let status = data["status"] || 'error';

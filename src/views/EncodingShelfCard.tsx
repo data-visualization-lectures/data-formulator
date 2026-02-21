@@ -32,7 +32,7 @@ import _ from 'lodash';
 import '../scss/EncodingShelf.scss';
 import { createDictTable, DictTable }  from "../components/ComponentType";
 
-import { getUrls, resolveChartFields } from '../app/utils';
+import { getUrls, resolveChartFields, authenticatedFetch } from '../app/utils';
 import { EncodingBox } from './EncodingBox';
 
 import { ChannelGroups, CHART_TEMPLATES, getChartTemplate } from '../components/ChartTemplates';
@@ -308,10 +308,10 @@ export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);
     
-        fetch(engine, {...message, signal: controller.signal })
+        authenticatedFetch(engine, {...message, signal: controller.signal })
             .then((response) => response.json())
             .then((data) => {
-                
+
                 dispatch(dfActions.changeChartRunningStatus({chartId, status: false}))
                 console.log(data);
                 console.log(token);

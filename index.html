@@ -23,6 +23,14 @@
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
     <title>Data Formulator</title>
+    <!-- dataviz.jp 認証基盤 -->
+    <script src="https://auth.dataviz.jp/lib/supabase.js"></script>
+    <script src="https://auth.dataviz.jp/lib/dataviz-auth-client.js"></script>
+    <script src="https://auth.dataviz.jp/lib/dataviz-tool-header.js" defer></script>
+    <style>
+      /* dataviz-header (48px fixed) + dataviz-tool-header (~56px fixed) の分を確保 */
+      body { padding-top: 104px; }
+    </style>
   </head>
   <body>
     <noscript>Run this app with javascript</noscript>
