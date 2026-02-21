@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { FC, useState } from 'react'
+import { FC, useEffect, useState } from 'react'
 import { useSelector, useDispatch } from 'react-redux'
 import { DataFormulatorState, dfActions, dfSelectors, fetchCodeExpl, fetchFieldSemanticType, generateFreshChart } from '../app/dfSlice';
 
@@ -21,6 +21,8 @@ import {
     Stack,
     Card,
     Chip,
+    Autocomplete,
+    Menu,
 } from '@mui/material';
 
 import React from 'react';
@@ -30,7 +32,7 @@ import { Channel, EncodingItem, ConceptTransformation, Chart, FieldItem, Trigger
 import _ from 'lodash';
 
 import '../scss/EncodingShelf.scss';
-import { createDictTable, DictTable }  from "../components/ComponentType";
+import { createDictTable, DictTable } from "../components/ComponentType";
 
 import { getUrls, resolveChartFields, authenticatedFetch } from '../app/utils';
 import { EncodingBox } from './EncodingBox';
@@ -39,11 +41,14 @@ import { ChannelGroups, CHART_TEMPLATES, getChartTemplate } from '../components/
 import { getDataTable } from './VisualizationView';
 import TableRowsIcon from '@mui/icons-material/TableRowsOutlined';
 import ChangeCircleOutlinedIcon from '@mui/icons-material/ChangeCircleOutlined';
+import AddIcon from '@mui/icons-material/Add';
+import CheckIcon from '@mui/icons-material/Check';
 
-import { findBaseFields } from './ViewUtils';
 import { AppDispatch } from '../app/store';
 import PrecisionManufacturing from '@mui/icons-material/PrecisionManufacturing';
 import { Type } from '../data/types';
+import DeleteIcon from '@mui/icons-material/Delete';
+import CloseIcon from '@mui/icons-material/Close';
 
 // Property and state of an encoding shelf
 export interface EncodingShelfCardProps { 
@@ -52,35 +57,36 @@ export interface EncodingShelfCardProps {
     noBorder?: boolean;
 }
 
-let selectBaseTables = (activeFields: FieldItem[], conceptShelfItems: FieldItem[], tables: DictTable[]) : DictTable[] => {
+let selectBaseTables = (activeFields: FieldItem[], currentTable: DictTable, tables: DictTable[]) : DictTable[] => {
     
+    let baseTables = [];
+
+    // if the current table is derived from other tables, then we need to add those tables to the base tables
+    if (currentTable.derive && !currentTable.anchored) {
+        baseTables = currentTable.derive.source.map(t => tables.find(t2 => t2.id == t) as DictTable);
+    } else {
+        baseTables.push(currentTable);
+    }
+
     // if there is no active fields at all!!
     if (activeFields.length == 0) {
-        return [tables[0]];
+        return baseTables;
+    } else {
+        // find what are other tables that was used to derive the active fields
+        let relevantTableIds = [...new Set(activeFields.filter(t => t.source != "custom").map(t => t.tableRef))];
+        // find all tables that contains the active original fields
+        let tablesToAdd = tables.filter(t => relevantTableIds.includes(t.id));
+
+        baseTables.push(...tablesToAdd.filter(t => !baseTables.map(t2 => t2.id).includes(t.id)));
     }
 
-    let activeBaseFields = conceptShelfItems.filter((field) => {
-        return activeFields.map(f => f.source == "derived" ? findBaseFields(f, conceptShelfItems).map(f2 => f2.id) : [f.id]).flat().includes(field.id);
-    });
-
-    let activeOriginalFields = activeBaseFields.filter(field => field.source == "original");
-    let activeCustomFields = activeBaseFields.filter(field => field.source == "custom");
-    let activeDerivedFields = activeFields.filter(f => f.source == "derived");
-
-    if (activeOriginalFields.length == 0 && activeFields.length > 0 && tables.length > 0) {
-        return [tables[0]];
-    }
-
-    let baseTables = tables.filter(t => activeOriginalFields.map(f => f.tableRef as string).includes(t.id));
-
-    return baseTables
+    return baseTables;
 }
 
 export const TriggerCard: FC<{className?: string, trigger: Trigger, hideFields?: boolean, label?: string}> = function ({ label, className, trigger, hideFields }) {
 
     const charts = useSelector((state: DataFormulatorState) => state.charts);
     let fieldItems = useSelector((state: DataFormulatorState) => state.conceptShelfItems);
-    const focusedChartId = useSelector((state: DataFormulatorState) => state.focusedChartId);
 
     const dispatch = useDispatch<AppDispatch>();
 
@@ -100,11 +106,11 @@ export const TriggerCard: FC<{className?: string, trigger: Trigger, hideFields?:
                 let field = fieldItems.find(f => f.id == encoding.fieldID) as FieldItem;
                 return [index > 0 ? '⨉' : '', 
                         <Chip 
-                            key={`trigger-${channel}-${field.id}`}
+                            key={`trigger-${channel}-${field?.id}`}
                             sx={{color:'inherit', maxWidth: '110px', marginLeft: "2px", height: 18, fontSize: 12, borderRadius: '4px', 
                                    border: '1px solid rgb(250 235 215)', background: 'rgb(250 235 215 / 70%)',
                                    '& .MuiChip-label': { paddingLeft: '6px', paddingRight: '6px' }}} 
-                              label={`${field.name}`} />]
+                              label={`${field?.name}`} />]
             })
     }
 
@@ -184,12 +190,117 @@ export const MiniTriggerCard: FC<{className?: string, trigger: Trigger, hideFiel
     </Box>
 }
 
+// Add this component before EncodingShelfCard
+const UserActionTableSelector: FC<{
+    requiredActionTableIds: string[],
+    userSelectedActionTableIds: string[],
+    tables: DictTable[],
+    updateUserSelectedActionTableIds: (tableIds: string[]) => void,
+    requiredTableIds?: string[]
+}> = ({ requiredActionTableIds, userSelectedActionTableIds, tables, updateUserSelectedActionTableIds, requiredTableIds = [] }) => {
+    const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+    const open = Boolean(anchorEl);
+
+    let actionTableIds = [...requiredActionTableIds, ...userSelectedActionTableIds.filter(id => !requiredActionTableIds.includes(id))];
+
+    const handleClick = (event: React.MouseEvent<HTMLElement>) => {
+        setAnchorEl(event.currentTarget);
+    };
+
+    const handleClose = () => {
+        setAnchorEl(null);
+    };
+
+    const handleTableSelect = (table: DictTable) => {
+        if (!actionTableIds.includes(table.id)) {
+            updateUserSelectedActionTableIds([...userSelectedActionTableIds, table.id]);
+        }
+        handleClose();
+    };
+
+    return (
+        <Box sx={{ 
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '2px',
+            padding: '4px',
+            marginBottom: 0.5,
+        }}>
+            {actionTableIds.map((tableId) => {
+                const isRequired = requiredTableIds.includes(tableId);
+                return (
+                    <Chip
+                        key={tableId}
+                        label={tables.find(t => t.id == tableId)?.displayId}
+                        size="small"
+                        sx={{
+                            height: 16,
+                            fontSize: '10px',
+                            borderRadius: '0px',
+                            bgcolor: isRequired ? 'rgba(25, 118, 210, 0.2)' : 'rgba(25, 118, 210, 0.1)', // darker blue for required
+                            color: 'rgba(0, 0, 0, 0.7)',
+                            '& .MuiChip-label': {
+                                pl: '4px',
+                                pr: '6px'
+                            }
+                        }}
+                        deleteIcon={<CloseIcon sx={{ fontSize: '8px', width: '12px', height: '12px' }} />}
+                        onDelete={isRequired ? undefined : () => updateUserSelectedActionTableIds(actionTableIds.filter(id => id !== tableId))}
+                    />
+                );
+            })}
+            <Tooltip title="add more base tables for data formulation">
+                <IconButton
+                    size="small"
+                    onClick={handleClick}
+                    sx={{ 
+                        width: 16,
+                        height: 16,
+                        fontSize: '10px',
+                        padding: 0
+                    }}
+                >
+                    <AddIcon fontSize="inherit" />
+                </IconButton>
+            </Tooltip>
+            <Menu
+                anchorEl={anchorEl}
+                open={open}
+                onClose={handleClose}
+            >
+                {tables
+                    .map((table) => {
+                        const isSelected = !!actionTableIds.find(t => t === table.id);
+                        return (
+                            <MenuItem 
+                                disabled={isSelected}
+                                key={table.id}
+                                onClick={() => handleTableSelect(table)}
+                                sx={{ 
+                                    fontSize: '12px',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center'
+                                }}
+                            >
+                                {table.displayId}
+                            </MenuItem>
+                        );
+                    })
+                }
+            </Menu>
+        </Box>
+    );
+};
+
 export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId, trigger }) {
 
     // reference to states
     const tables = useSelector((state: DataFormulatorState) => state.tables);
     const charts = useSelector((state: DataFormulatorState) => state.charts);
-    const betaMode = useSelector((state: DataFormulatorState) => state.betaMode);
+    const config = useSelector((state: DataFormulatorState) => state.config);
+    let existMultiplePossibleBaseTables = tables.filter(t => t.derive == undefined || t.anchored).length > 1;
+
     let activeModel = useSelector(dfSelectors.getActiveModel);
 
     let [prompt, setPrompt] = useState<string>(trigger?.instruction || "");
@@ -206,6 +317,16 @@ export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId
     let currentTable = getDataTable(chart, tables, charts, conceptShelfItems);
 
     const dispatch = useDispatch<AppDispatch>();
+    
+
+    // Add this state
+    const [userSelectedActionTableIds, setUserSelectedActionTableIds] = useState<string[]>([]);
+    
+    
+    // Update the handler to use state
+    const handleUserSelectedActionTableChange = (newTableIds: string[]) => {
+        setUserSelectedActionTableIds(newTableIds);
+    };
 
     let encodingBoxGroups = Object.entries(ChannelGroups)
         .filter(([group, channelList]) => channelList.some(ch => Object.keys(encodingMap).includes(ch)))
@@ -222,29 +343,35 @@ export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId
     // derive active fields from encoding map so that we can keep the order of which fields will be visualized
     let activeFields = Object.values(encodingMap).map(enc => enc.fieldID).filter(fieldId => fieldId && conceptShelfItems.map(f => f.id)
                                 .includes(fieldId)).map(fieldId => conceptShelfItems.find(f => f.id == fieldId) as FieldItem);
-    let activeBaseFields = activeFields.map(f => f.source == 'derived' ? (f.transform as ConceptTransformation).parentIDs : [f.id])
-                                .flat().map(fieldId => conceptShelfItems.find(f => f.id == fieldId) as FieldItem)
     
-    let activeCustomFields = activeBaseFields.filter(field => field.source == "custom");
+    let activeCustomFields = activeFields.filter(field => field.source == "custom");
 
     // check if the current table contains all fields already exists a table that fullfills the user's specification
-    let existsWorkingTable = activeBaseFields.length == 0 || activeBaseFields.every(f => currentTable.names.includes(f.name));
+    let existsWorkingTable = activeFields.length == 0 || activeFields.every(f => currentTable.names.includes(f.name));
+    
+    // this is the base tables that will be used to derive the new data
+    // this is the bare minimum tables that are required to derive the new data, based fields that will be used
+    let requiredActionTables = selectBaseTables(activeFields, currentTable, tables);
+    let actionTableIds = [
+        ...requiredActionTables.map(t => t.id),
+        ...userSelectedActionTableIds.filter(id => !requiredActionTables.map(t => t.id).includes(id))
+    ];
 
     let deriveNewData = (overrideTableId?: string) => {
 
         let mode = 'formulate';
-        let baseTables = selectBaseTables(activeFields, conceptShelfItems, tables);
-
-        let instruction = (chart.chartType == 'Auto' && prompt == "") ? "let's get started" : prompt;
-
-        if (baseTables.length == 0) {
+        if (actionTableIds.length == 0) {
             return;
         }
+
+        let actionTables = actionTableIds.map(id => tables.find(t => t.id == id) as DictTable);
+
+        let instruction = (chart.chartType == 'Auto' && prompt == "") ? "let's get started" : prompt;
 
         if (currentTable.derive == undefined && instruction == "" && 
                 (activeFields.length > 0 && activeCustomFields.length == 0) && 
                 tables.some(t => t.derive == undefined && 
-                activeBaseFields.every(f => t.names.includes(f.name)))) {
+                activeFields.every(f => currentTable.names.includes(f.name)))) {
 
             // if there is no additional fields, directly generate
             let tempTable = getDataTable(chart, tables, charts, conceptShelfItems, true);
@@ -274,24 +401,56 @@ export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId
         let messageBody = JSON.stringify({
             token: token,
             mode,
-            input_tables: baseTables.map(t => {return { name: t.id.replace(/\.[^/.]+$/ , ""), rows: t.rows }}),
-            new_fields: activeBaseFields.map(f => { return {name: f.name} }),
+            input_tables: actionTables.map(t => {
+                return { name: t.virtual?.tableId || t.id.replace(/\.[^/.]+$/ , ""), rows: t.rows }}),
+            new_fields: activeFields.map(f => { return {name: f.name} }),
             extra_prompt: instruction,
-            model: activeModel
-        }) 
-        let engine = getUrls().SERVER_DERIVE_DATA_URL;
+            model: activeModel,
+            max_repair_attempts: config.maxRepairAttempts,
+            language: actionTables.some(t => t.virtual) ? "sql" : "python"
+        })
 
-        if (mode == "formulate" && currentTable.derive?.dialog) {
-            messageBody = JSON.stringify({
-                token: token,
-                mode,
-                input_tables: baseTables.map(t => {return { name: t.id.replace(/\.[^/.]+$/ , ""), rows: t.rows }}),
-                output_fields: activeBaseFields.map(f => { return {name: f.name} }),
-                dialog: currentTable.derive?.dialog,
-                new_instruction: instruction,
-                model: activeModel
-            })
-            engine = getUrls().SERVER_REFINE_DATA_URL;
+        let engine = getUrls().DERIVE_DATA;
+
+        if (currentTable.derive?.dialog && !currentTable.anchored) {
+            let sourceTableIds = currentTable.derive?.source;
+
+            // Compare if source and base table IDs are different
+            if (!sourceTableIds.every(id => actionTableIds.includes(id)) || 
+                !actionTableIds.every(id => sourceTableIds.includes(id))) {
+                
+                let additionalMessages = currentTable.derive.dialog;
+
+                // in this case, because table ids has changed, we need to use the additional messages and reformulate
+                messageBody = JSON.stringify({
+                    token: token,
+                    mode,
+                    input_tables: actionTables.map(t => {return { name: t.virtual?.tableId || t.id.replace(/\.[^/.]+$/ , ""), rows: t.rows }}),
+                    new_fields: activeFields.map(f => { return {name: f.name} }),
+                    extra_prompt: instruction,
+                    model: activeModel,
+                    additional_messages: additionalMessages,
+                    max_repair_attempts: config.maxRepairAttempts,
+                    language: actionTables.some(t => t.virtual) ? "sql" : "python"
+                });
+                engine = getUrls().DERIVE_DATA;
+            } else {
+                messageBody = JSON.stringify({
+                    token: token,
+                    mode,
+                    input_tables: actionTables.map(t => {return { name: t.virtual?.tableId || t.id.replace(/\.[^/.]+$/ , ""), rows: t.rows }}),
+                    output_fields: activeFields.map(f => { return {name: f.name} }),
+                    dialog: currentTable.derive?.dialog,
+                    new_instruction: instruction,
+                    model: activeModel,
+                    max_repair_attempts: config.maxRepairAttempts,
+                    language: actionTables.some(t => t.virtual) ? "sql" : "python"
+                })
+                engine = getUrls().REFINE_DATA;
+            } 
+            
+            console.log("engine");
+            console.log(engine);
         }
 
         let message = {
@@ -302,23 +461,25 @@ export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId
             body: messageBody,
         };
 
+        console.log("message");
+        console.log(JSON.parse(messageBody));
+
         dispatch(dfActions.changeChartRunningStatus({chartId, status: true}));
 
         // timeout the request after 30 seconds
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        const timeoutId = setTimeout(() => controller.abort(), config.formulateTimeoutSeconds * 1000);
     
         authenticatedFetch(engine, {...message, signal: controller.signal })
             .then((response) => response.json())
             .then((data) => {
 
                 dispatch(dfActions.changeChartRunningStatus({chartId, status: false}))
-                console.log(data);
-                console.log(token);
+
                 if (data.results.length > 0) {
                     if (data["token"] == token) {
                         let candidates = data["results"].filter((item: any) => {
-                            return item["status"] == "ok" && item["content"].length > 0 
+                            return item["status"] == "ok"  
                         });
 
                         if (candidates.length == 0) {
@@ -328,30 +489,45 @@ export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId
                             dispatch(dfActions.addMessages({
                                 "timestamp": Date.now(),
                                 "type": "error",
-                                "value": `Data formulation failed, please retry.`,
+                                "value": `Data formulation failed, please try again.`,
                                 "code": code,
                                 "detail": errorMessage
                             }));
                         } else {
 
-                            // PART 1: handle triggers
-                            let genTableId = () => {
-                                let tableSuffix = Number.parseInt((Date.now() - Math.floor(Math.random() * 10000)).toString().slice(-2));
-                                let tableId = `table-${tableSuffix}`
-                                while (tables.find(t => t.id == tableId) != undefined) {
-                                    tableSuffix = tableSuffix + 1;
-                                    tableId = `table-${tableSuffix}`
-                                } 
-                                return tableId;
+                            let candidate = candidates[0];
+                            let code = candidate["code"];
+                            let rows = candidate["content"]["rows"];
+                            let dialog = candidate["dialog"];
+
+                            // determine the table id for the new table
+                            let candidateTableId;
+                            if (overrideTableId) {
+                                candidateTableId = overrideTableId;
+                            } else {
+                                if (candidate["content"]["virtual"] != null) {
+                                    candidateTableId = candidate["content"]["virtual"]["table_name"];
+                                } else {
+                                    let genTableId = () => {
+                                        let tableSuffix = Number.parseInt((Date.now() - Math.floor(Math.random() * 10000)).toString().slice(-2));
+                                        let tableId = `table-${tableSuffix}`
+                                        while (tables.find(t => t.id == tableId) != undefined) {
+                                            tableSuffix = tableSuffix + 1;
+                                            tableId = `table-${tableSuffix}`
+                                        } 
+                                        return tableId;
+                                    }
+                                    candidateTableId = genTableId();
+                                }
                             }
 
-                            let candidateTableId = overrideTableId || genTableId();
-
+                            // PART 1: handle triggers
                             // add the intermediate chart that will be referred by triggers
 
                             let triggerChartSpec = duplicateChart(chart);
                             let currentTrigger: Trigger =  { 
                                 tableId: currentTable.id, 
+                                sourceTableIds: actionTableIds,
                                 instruction: instruction, 
                                 chartRef: triggerChartSpec.id,
                                 resultTableId: candidateTableId
@@ -361,17 +537,24 @@ export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId
                             dispatch(dfActions.addChart(triggerChartSpec));
                         
                             // PART 2: create new table (or override table)
-                            let candidate = candidates[0];
-
                             let candidateTable = createDictTable(
                                 candidateTableId, 
-                                candidate["content"], 
-                                { code: candidate["code"], 
+                                rows, 
+                                { code: code, 
                                     codeExpl: "",
-                                    source: baseTables.map(t => t.id), 
-                                    dialog: candidate["dialog"], 
+                                    source: actionTableIds, 
+                                    dialog: dialog, 
                                     trigger: currentTrigger }
                             )
+                            if (candidate["content"]["virtual"] != null) {
+                                candidateTable.virtual = {
+                                    tableId: candidate["content"]["virtual"]["table_name"],
+                                    rowCount: candidate["content"]["virtual"]["row_count"]
+                                };
+                            }
+
+                            console.log("candidateTable");  
+                            console.log(candidateTable);
 
                             if (overrideTableId) {
                                 dispatch(dfActions.overrideDerivedTables(candidateTable));
@@ -384,7 +567,7 @@ export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId
                             let conceptsToAdd = missingNames.map((name) => {
                                 return {
                                     id: `concept-${name}-${Date.now()}`, name: name, type: "auto" as Type, 
-                                    description: "", source: "custom", temporary: true, domain: [],
+                                    description: "", source: "custom", tableRef: "custom", temporary: true, domain: [],
                                 } as FieldItem
                             })
                             dispatch(dfActions.addConceptItems(conceptsToAdd));
@@ -470,14 +653,23 @@ export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId
                     }));
                 }
             }).catch((error) => {
-                
                 dispatch(dfActions.changeChartRunningStatus({chartId, status: false}));
-                dispatch(dfActions.addMessages({
-                    "timestamp": Date.now(),
-                    "type": "error",
-                    "value": `Data formulation failed, please try again.`,
-                    "detail": error.message
-                }));
+                // Check if the error was caused by the AbortController
+                if (error.name === 'AbortError') {
+                    dispatch(dfActions.addMessages({
+                        "timestamp": Date.now(),
+                        "type": "error",
+                        "value": `Data formulation timed out after ${config.formulateTimeoutSeconds} seconds. Consider breaking down the task, using a different model or prompt, or increasing the timeout limit.`,
+                        "detail": "Request exceeded timeout limit"
+                    }));
+                } else {
+                    dispatch(dfActions.addMessages({
+                        "timestamp": Date.now(),
+                        "type": "error",
+                        "value": `Data formulation failed, please try again.`,
+                        "detail": error.message
+                    }));
+                }
             });
     }
     let defaultInstruction = chart.chartType == "Auto" ? "" : "" // `the output data should contain fields ${activeBaseFields.map(f => `${f.name}`).join(', ')}`
@@ -540,9 +732,16 @@ export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId
 
     let channelComponent = (
         <Box sx={{ width: "100%", minWidth: "210px", height: '100%', display: "flex", flexDirection: "column" }}>
+            {existMultiplePossibleBaseTables && <UserActionTableSelector 
+                requiredActionTableIds={requiredActionTables.map(t => t.id)}
+                userSelectedActionTableIds={userSelectedActionTableIds}
+                tables={tables.filter(t => t.derive === undefined || t.anchored)}
+                updateUserSelectedActionTableIds={handleUserSelectedActionTableChange}
+                requiredTableIds={requiredActionTables.map(t => t.id)}
+            />}
             <Box key='mark-selector-box' sx={{ flex: '0 0 auto' }}>
                 <FormControl sx={{ m: 1, minWidth: 120, width: "100%", margin: "0px 0"}} size="small">
-                    <InputLabel 
+                    {!existMultiplePossibleBaseTables && <InputLabel 
                         id="chart-mark-select-label"
                         sx={{
                             color: "text.secondary",
@@ -550,7 +749,7 @@ export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId
                             fontSize: "10px",
                             margin: "-2px 0px 0px 4px",
                         }}
-                    >Chart Type</InputLabel>
+                    >Chart Type</InputLabel>}   
                     <Select
                         variant="standard"
                         labelId="chart-mark-select-label"
@@ -584,6 +783,7 @@ export const EncodingShelfCard: FC<EncodingShelfCardProps> = function ({ chartId
                         })}
                     </Select>
                 </FormControl>
+                
             </Box>
             <Box key='encoding-groups' sx={{ flex: '1 1 auto' }} style={{ height: "calc(100% - 100px)" }} className="encoding-list">
                 {encodingBoxGroups}

@@ -12,6 +12,7 @@ import { findBaseFields } from '../views/ViewUtils';
 import { adaptChart, getTriggers, getUrls, authenticatedFetch } from './utils';
 import { Type } from '../data/types';
 import { TableChallenges } from '../views/TableSelectionView';
+import { inferTypeFromValueArray } from '../data/utils';
 
 enableMapSet();
 
@@ -26,12 +27,21 @@ export const generateFreshChart = (tableRef: string, chartType?: string) : Chart
     }
 }
 
+export interface ModelConfig {
+    id: string; // unique identifier for the model / client combination
+    endpoint: string;
+    model: string;
+    api_key?: string;
+    api_base?: string;
+    api_version?: string;
+}
+
 // Define a type for the slice state
 export interface DataFormulatorState {
-
-    oaiModels: {endpoint: string, key: string, model: string }[];
-    selectedModel: {endpoint: string, model: string}  | undefined;
-    testedModels: {endpoint: string, model: string, status: 'ok' | 'error' | 'testing' | 'unknown', message: string}[];
+    sessionId: string | undefined;
+    models: ModelConfig[];
+    selectedModelId: string | undefined;
+    testedModels: {id: string, status: 'ok' | 'error' | 'testing' | 'unknown', message: string}[];
 
     tables : DictTable[];
     charts: Chart[];
@@ -53,18 +63,22 @@ export interface DataFormulatorState {
     focusedTableId: string | undefined;
     focusedChartId: string | undefined;
     activeThreadChartId: string | undefined; // specifying which chartThread is actively viewed
-    threadDrawerOpen: boolean; // decides whether the thread drawer is open
 
     chartSynthesisInProgress: string[];
 
-    betaMode: boolean;
+    config: {
+        formulateTimeoutSeconds: number;
+        maxRepairAttempts: number;
+        defaultChartWidth: number;
+        defaultChartHeight: number;
+    }   
 }
 
 // Define the initial state using that type
 const initialState: DataFormulatorState = {
-
-    oaiModels: [],
-    selectedModel: undefined,
+    sessionId: undefined,
+    models: [],
+    selectedModelId: undefined,
     testedModels: [],
 
     tables: [],
@@ -87,11 +101,15 @@ const initialState: DataFormulatorState = {
     focusedTableId: undefined,
     focusedChartId: undefined,
     activeThreadChartId: undefined,
-    threadDrawerOpen: false,
 
     chartSynthesisInProgress: [],
 
-    betaMode: false,
+    config: {
+        formulateTimeoutSeconds: 30,
+        maxRepairAttempts: 1,
+        defaultChartWidth: 300,
+        defaultChartHeight: 300,
+    }
 }
 
 let getUnrefedDerivedTableIds = (state: DataFormulatorState) => {
@@ -104,8 +122,6 @@ let getUnrefedDerivedTableIds = (state: DataFormulatorState) => {
 
     let allRefedTableIds = [...chartRefedTables.map(t => t.id), ...triggerRefedTableIds];
 
-    // TODO: also need to consider concept shelf reference??
-    
     return state.tables.filter(table => table.derive && !allRefedTableIds.includes(table.id)).map(t => t.id);
 } 
 
@@ -129,9 +145,11 @@ let deleteChartsRoutine = (state: DataFormulatorState, chartIds: string[]) => {
     state.activeThreadChartId = activeThreadChartId;
 
     let unrefedDerivedTableIds = getUnrefedDerivedTableIds(state);
-    state.tables = state.tables.filter(t => !unrefedDerivedTableIds.includes(t.id));
+    let tableIdsToDelete = state.tables.filter(t => !t.anchored && unrefedDerivedTableIds.includes(t.id)).map(t => t.id);
+    
+    state.tables = state.tables.filter(t => !tableIdsToDelete.includes(t.id));
     // remove intermediate charts that lead to this table
-    state.charts = state.charts.filter(c => !(c.intermediate && unrefedDerivedTableIds.includes(c.intermediate.resultTableId)));
+    state.charts = state.charts.filter(c => !(c.intermediate && tableIdsToDelete.includes(c.intermediate.resultTableId)));
 }
 
 export const fetchFieldSemanticType = createAsyncThunk(
@@ -146,7 +164,7 @@ export const fetchFieldSemanticType = createAsyncThunk(
             headers: { 'Content-Type': 'application/json', },
             body: JSON.stringify({
                 token: Date.now(),
-                input_data: {name: table.id, rows: table.rows},
+                input_data: {name: table.id, rows: table.rows, virtual: table.virtual ? true : false},
                 model: dfSelectors.getActiveModel(state)
             }),
         };
@@ -194,7 +212,7 @@ export const fetchCodeExpl = createAsyncThunk(
 export const fetchAvailableModels = createAsyncThunk(
     "dataFormulatorSlice/fetchAvailableModels",
     async () => {
-        console.log(">>> call agent to infer semantic types <<<")
+        console.log(">>> call agent to fetch available models <<<")
         let message = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', },
@@ -212,7 +230,26 @@ export const fetchAvailableModels = createAsyncThunk(
         return response.json();
     }
 );
-  
+
+export const getSessionId = createAsyncThunk(
+    "dataFormulatorSlice/getSessionId",
+    async (_, { getState }) => {
+        let state = getState() as DataFormulatorState;
+        let sessionId = state.sessionId;
+
+        const response = await fetch(`${getUrls().GET_SESSION_ID}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                session_id: sessionId,
+            }),
+        });
+        return response.json();
+    }
+);
+
 export const dataFormulatorSlice = createSlice({
     name: 'dataFormulatorSlice',
     initialState: initialState,
@@ -222,7 +259,8 @@ export const dataFormulatorSlice = createSlice({
             
             // avoid resetting inputted models
             // state.oaiModels = state.oaiModels.filter((m: any) => m.endpoint != 'default');
-            state.selectedModel = state.oaiModels.length > 0 ? state.oaiModels[0] : undefined;
+
+            state.selectedModelId = state.models.length > 0 ? state.models[0].id : undefined;
             state.testedModels = [];
 
             state.tables = [];
@@ -237,18 +275,17 @@ export const dataFormulatorSlice = createSlice({
             state.focusedTableId = undefined;
             state.focusedChartId = undefined;
             state.activeThreadChartId = undefined;
-            state.threadDrawerOpen = false;
 
             state.chartSynthesisInProgress = [];
 
-            state.betaMode = false;
+            state.config = initialState.config;
         },
         loadState: (state, action: PayloadAction<any>) => {
 
             let savedState = action.payload;
 
-            state.oaiModels = savedState.oaiModels.filter((m: any) => m.endpoint != 'default');
-            state.selectedModel = state.oaiModels.length > 0 ? state.oaiModels[0] : undefined;
+            state.models = savedState.models;
+            state.selectedModelId = savedState.selectedModelId;
             state.testedModels = []; // models should be tested again
 
             //state.table = undefined;
@@ -265,47 +302,53 @@ export const dataFormulatorSlice = createSlice({
             state.focusedTableId = savedState.focusedTableId || undefined;
             state.focusedChartId = savedState.focusedChartId || undefined;
             state.activeThreadChartId = savedState.activeThreadChartId || undefined;
-            state.threadDrawerOpen = false;
 
             state.chartSynthesisInProgress = [];
 
-            state.betaMode = savedState.betaMode;
+            state.config = savedState.config;
         },
-        toggleBetaMode: (state, action: PayloadAction<boolean>) => {
-            state.betaMode = action.payload;
+        setConfig: (state, action: PayloadAction<{
+            formulateTimeoutSeconds: number, maxRepairAttempts: number, 
+            defaultChartWidth: number, defaultChartHeight: number}>) => {
+            state.config = action.payload;
         },
-        selectModel: (state, action: PayloadAction<{model: string, endpoint: string}>) => {
-            state.selectedModel = action.payload;
+        selectModel: (state, action: PayloadAction<string | undefined>) => {
+            state.selectedModelId = action.payload;
         },
-        addModel: (state, action: PayloadAction<{model: string, key: string, endpoint: string}>) => {
-            state.oaiModels = [...state.oaiModels, action.payload];
+        addModel: (state, action: PayloadAction<ModelConfig>) => {
+            state.models = [...state.models, action.payload];
         },
-        removeModel: (state, action: PayloadAction<{model: string, endpoint: string}>) => {
-            let model = action.payload.model;
-            let endpoint = action.payload.endpoint;
-            state.oaiModels = state.oaiModels.filter(oaiModel => oaiModel.model != model || oaiModel.endpoint != endpoint );
-            state.testedModels = state.testedModels.filter(m => !(m.model == model && m.endpoint == endpoint));
+        removeModel: (state, action: PayloadAction<string>) => {
+            state.models = state.models.filter(model => model.id != action.payload);
+            if (state.selectedModelId == action.payload) {
+                state.selectedModelId = undefined;
+            }
         },
-        updateModelStatus: (state, action: PayloadAction<{model: string, endpoint: string, status: 'ok' | 'error' | 'testing' | 'unknown', message: string}>) => {
-            let model = action.payload.model;
-            let endpoint = action.payload.endpoint;
+        updateModelStatus: (state, action: PayloadAction<{id: string, status: 'ok' | 'error' | 'testing' | 'unknown', message: string}>) => {
+            let id = action.payload.id;
             let status = action.payload.status;
             let message = action.payload.message;
             
-            state.testedModels = [...state.testedModels.filter(t => !(t.model == model && t.endpoint == endpoint)), {model, endpoint, status, message} ]
+            state.testedModels = [
+                ...state.testedModels.filter(t => t.id != id), 
+                {id: id, status, message}
+            ];
         },
-        addTable: (state, action: PayloadAction<DictTable>) => {
+        loadTable: (state, action: PayloadAction<DictTable>) => {
             let table = action.payload;
             state.tables = [...state.tables, table];
             state.conceptShelfItems = [...state.conceptShelfItems, ...getDataFieldItems(table)];
+
+            state.focusedTableId = table.id;
+            state.focusedChartId = undefined;
+            state.activeThreadChartId = undefined;  
         },
         deleteTable: (state, action: PayloadAction<string>) => {
             let tableId = action.payload;
             state.tables = state.tables.filter(t => t.id != tableId);
 
             // feels problematic???
-            state.conceptShelfItems = state.conceptShelfItems.filter(f => !(f.tableRef == tableId || 
-                                                                            findBaseFields(f, state.conceptShelfItems).some(f2 => f2.tableRef == tableId)));
+            state.conceptShelfItems = state.conceptShelfItems.filter(f => !(f.tableRef == tableId));
             
             // delete charts that refer to this table and intermediate charts that produce this table
             let chartIdsToDelete = state.charts.filter(c => c.tableRef == tableId).map(c => c.id);
@@ -314,8 +357,82 @@ export const dataFormulatorSlice = createSlice({
             // separate this, so that we only delete on tier of table a time
             state.charts = state.charts.filter(c => !(c.intermediate && c.intermediate.resultTableId == tableId));
         },
+        updateTableAnchored: (state, action: PayloadAction<{tableId: string, anchored: boolean}>) => {
+            let tableId = action.payload.tableId;
+            let anchored = action.payload.anchored;
+            state.tables = state.tables.map(t => t.id == tableId ? {...t, anchored} : t);
+        },
+        updateTableDisplayId: (state, action: PayloadAction<{tableId: string, displayId: string}>) => {
+            let tableId = action.payload.tableId;
+            let displayId = action.payload.displayId;
+            state.tables = state.tables.map(t => t.id == tableId ? {...t, displayId} : t);
+        },
         addChallenges: (state, action: PayloadAction<{tableId: string, challenges: { text: string; difficulty: 'easy' | 'medium' | 'hard'; }[]}>) => {
             state.activeChallenges = [...state.activeChallenges, action.payload];
+        },
+        extendTableWithNewFields: (state, action: PayloadAction<{tableId: string, columnName: string, values: any[], previousName: string | undefined, parentIDs: string[]}>) => {
+            // extend the existing extTable with new columns from the new table
+            let newValues = action.payload.values;
+            let tableId = action.payload.tableId;
+            let columnName = action.payload.columnName;
+            let previousName = action.payload.previousName;
+            let parentIDs = action.payload.parentIDs;
+
+            // Find the first parent's column name
+            let lastParentField = state.conceptShelfItems.find(f => f.id === parentIDs[parentIDs.length - 1]);
+            let lastParentName = lastParentField?.name;
+
+            let table = state.tables.find(t => t.id == tableId) as DictTable;
+
+            let newNames = [];
+            let newTypes = [];
+            if (previousName && table.names.indexOf(previousName) != -1) {
+                let replacePosition = table.names.indexOf(previousName);
+                newNames[replacePosition] = columnName;
+                newTypes[replacePosition] = inferTypeFromValueArray(newValues);
+            } else {            
+                let insertPosition = lastParentName ? table.names.indexOf(lastParentName) : table.names.length - 1;
+                newNames = table.names.slice(0, insertPosition + 1).concat(columnName).concat(table.names.slice(insertPosition + 1));
+                newTypes = table.types.slice(0, insertPosition + 1).concat(inferTypeFromValueArray(newValues)).concat(table.types.slice(insertPosition + 1));
+            }
+            
+            // Create new rows with the column positioned after the first parent
+            let newRows = table.rows.map((row, i) => {
+                let newRow: {[key: string]: any} = {};
+                for (let key of Object.keys(row)) {
+                    newRow[key] = row[key];
+                    if (key === lastParentName) {
+                        newRow[columnName] = newValues[i];
+                    }
+                }
+                if (!lastParentName) {
+                    newRow[columnName] = newValues[i];
+                }
+                if (previousName) {
+                    delete newRow[previousName];
+                }
+                return newRow;
+            });
+            
+            table.names = newNames;
+            table.types = newTypes;
+            table.rows = newRows;
+        },
+        removeDerivedField: (state, action: PayloadAction<{tableId: string, fieldId: string}>) => {
+            let tableId = action.payload.tableId;
+            let fieldId = action.payload.fieldId;
+            let table = state.tables.find(t => t.id == tableId) as DictTable;
+            let fieldName = state.conceptShelfItems.find(f => f.id == fieldId)?.name as string;
+
+            let fieldIndex = table.names.indexOf(fieldName);  
+            if (fieldIndex != -1) {
+                table.names = table.names.slice(0, fieldIndex).concat(table.names.slice(fieldIndex + 1));
+                table.types = table.types.slice(0, fieldIndex).concat(table.types.slice(fieldIndex + 1));
+                table.rows = table.rows.map(r => {
+                    delete r[fieldName];
+                    return r;
+                });
+            }
         },
         createNewChart: (state, action: PayloadAction<{chartType?: string, tableId?: string}>) => {
             let chartType = action.payload.chartType;
@@ -345,18 +462,6 @@ export const dataFormulatorSlice = createSlice({
             state.charts = state.charts.map(chart => {
                 if (chart.id == chartId) {
                     return { ...chart, saved: !chart.saved };
-                } else {
-                    return chart;
-                }
-            })
-        },
-        updateChartScaleFactor: (state, action: PayloadAction<{chartId: string, scaleFactor: number}>) => {
-            let chartId = action.payload.chartId;
-            let scaleFactor = action.payload.scaleFactor;
-
-            state.charts = state.charts.map(chart => {
-                if (chart.id == chartId) {
-                    return { ...chart, scaleFactor: scaleFactor };
                 } else {
                     return chart;
                 }
@@ -446,8 +551,6 @@ export const dataFormulatorSlice = createSlice({
                     if (field?.levels) {
                         encoding.sortBy = JSON.stringify(field.levels);
                     }
-                } else if (prop == 'bin') {
-                    encoding.bin = value;
                 } else if (prop == 'aggregate') {
                     encoding.aggregate = value;
                 } else if (prop == 'stack') {
@@ -471,8 +574,8 @@ export const dataFormulatorSlice = createSlice({
                 let enc1 = chart.encodingMap[channel1];
                 let enc2 = chart.encodingMap[channel2];
 
-                chart.encodingMap[channel1] = { fieldID: enc2.fieldID, aggregate: enc2.aggregate, bin: enc2.bin, sortBy: enc2.sortBy };
-                chart.encodingMap[channel2] = { fieldID: enc1.fieldID, aggregate: enc1.aggregate, bin: enc1.bin, sortBy: enc1.sortBy };
+                chart.encodingMap[channel1] = { fieldID: enc2.fieldID, aggregate: enc2.aggregate, sortBy: enc2.sortBy };
+                chart.encodingMap[channel2] = { fieldID: enc1.fieldID, aggregate: enc1.aggregate, sortBy: enc1.sortBy };
             }
         },
         addConceptItems: (state, action: PayloadAction<FieldItem[]>) => {
@@ -501,12 +604,25 @@ export const dataFormulatorSlice = createSlice({
                 && Object.entries(chart.encodingMap).some(([channel, encoding]) => encoding.fieldID && conceptID == encoding.fieldID))) {
                 console.log("cannot delete!")
             } else {
-                state.conceptShelfItems = state.conceptShelfItems.filter(field => field.id != conceptID);
+                let field = state.conceptShelfItems.find(f => f.id == conceptID);
+                if (field?.source == "derived") {
+                    // delete generated column from the derived table
+                    let table = state.tables.find(t => t.id == field.tableRef) as DictTable;
+                    let fieldIndex = table.names.indexOf(field.name);
+                    table.names = table.names.slice(0, fieldIndex).concat(table.names.slice(fieldIndex + 1));
+                    table.types = table.types.slice(0, fieldIndex).concat(table.types.slice(fieldIndex + 1));
+                    table.rows = table.rows.map(row => {
+                        delete row[field.name];
+                        return row;
+                    });
+                }
+                state.conceptShelfItems = state.conceptShelfItems.filter(f => f.id != conceptID);
+
                 for (let chart of state.charts)  {
                     for (let [channel, encoding] of Object.entries(chart.encodingMap)) {
                         if (encoding.fieldID && conceptID == encoding.fieldID) {
                             // clear the encoding
-                            chart.encodingMap[channel as Channel] = { bin: false }
+                            chart.encodingMap[channel as Channel] = { }
                         }
                     }
                 }
@@ -524,7 +640,7 @@ export const dataFormulatorSlice = createSlice({
                         for (let [channel, encoding] of Object.entries(chart.encodingMap)) {
                             if (encoding.fieldID && conceptID == encoding.fieldID) {
                                 // clear the encoding
-                                chart.encodingMap[channel as Channel] = { bin: false }
+                                chart.encodingMap[channel as Channel] = { }
                             }
                         }
                     }
@@ -546,7 +662,7 @@ export const dataFormulatorSlice = createSlice({
         clearUnReferencedTables: (state) => {
             // remove all tables that are not referred
             let charts = state.charts;
-            let referredTableId = charts.map(chart => getDataTable(chart, state.tables, charts, state.conceptShelfItems).id);
+            let referredTableId = charts.map(chart => getDataTable(chart, state.tables, state.charts, state.conceptShelfItems).id);
             state.tables = state.tables.filter(t => !(t.derive && !referredTableId.some(tableId => tableId == t.id)));
         },
         clearUnReferencedCustomConcepts: (state) => {
@@ -561,9 +677,6 @@ export const dataFormulatorSlice = createSlice({
         },
         setVisPaneSize: (state, action: PayloadAction<number>) => {
             state.visPaneSize = action.payload;
-        },
-        setThreadDrawerOpen: (state, action: PayloadAction<boolean>) => {
-            state.threadDrawerOpen = action.payload;
         },
         setDisplayPanelSize: (state, action: PayloadAction<number>) => {
             state.displayPanelSize = action.payload;
@@ -614,7 +727,10 @@ export const dataFormulatorSlice = createSlice({
             } else {
                 state.chartSynthesisInProgress = state.chartSynthesisInProgress.filter(s => s != action.payload.chartId);
             }
-        }
+        },
+        setSessionId: (state, action: PayloadAction<string>) => {
+            state.sessionId = action.payload;
+        },
     },
     extraReducers: (builder) => {
         builder
@@ -640,21 +756,23 @@ export const dataFormulatorSlice = createSlice({
         })
         .addCase(fetchAvailableModels.fulfilled, (state, action) => {
             let defaultModels = action.payload;
-            state.oaiModels = [...defaultModels, ...state.oaiModels.filter(e => !defaultModels.map((m: any) => m.endpoint).includes(e.endpoint))];
-            console.log(state.oaiModels)
-            
-            state.testedModels = [...state.testedModels.filter(t => !(t.endpoint == 'default')), 
-                                    ...defaultModels.map((m: any) => {return {endpoint: m.endpoint, model: m.model, status: 'ok'}}) ]
 
-            if (state.selectedModel == undefined && defaultModels.length > 0) {
-                state.selectedModel = {
-                    model: defaultModels[0].model,
-                    endpoint: defaultModels[0].endpoint
-                }
-            }
+            state.models = [
+                ...defaultModels, 
+                ...state.models.filter(e => !defaultModels.map((m: ModelConfig) => m.endpoint).includes(e.endpoint))
+            ];
             
-            console.log("fetched models");
-            console.log(action.payload);
+            state.testedModels = [ 
+                ...defaultModels.map((m: ModelConfig) => {return {id: m.id, status: 'ok'}}) ,
+                ...state.testedModels.filter(t => !defaultModels.map((m: ModelConfig) => m.id).includes(t.id))
+            ]
+
+            if (state.selectedModelId == undefined && defaultModels.length > 0) {
+                state.selectedModelId = defaultModels[0].id;
+            }
+
+            // console.log("load model complete");
+            // console.log("state.models", state.models);
         })
         .addCase(fetchCodeExpl.fulfilled, (state, action) => {
             let codeExpl = action.payload;
@@ -666,15 +784,25 @@ export const dataFormulatorSlice = createSlice({
             console.log("fetched codeExpl");
             console.log(action.payload);
         })
+        .addCase(getSessionId.fulfilled, (state, action) => {
+            console.log("got sessionId ", action.payload.session_id);
+            state.sessionId = action.payload.session_id;
+        })
     },
 })
 
 export const dfSelectors = {
-    getActiveModel: (state: DataFormulatorState) => {
-        return state.oaiModels.find(m => m.endpoint == state.selectedModel?.endpoint && m.model == state.selectedModel.model) || {'endpoint': 'default', model: 'gpt-4o', key: ""}
+    getActiveModel: (state: DataFormulatorState) : ModelConfig => {
+        return state.models.find(m => m.id == state.selectedModelId) || state.models[0];
+    },
+    getActiveBaseTableIds: (state: DataFormulatorState) => {
+        let focusedTableId = state.focusedTableId;
+        let tables = state.tables;
+        let focusedTable = tables.find(t => t.id == focusedTableId);
+        let sourceTables = focusedTable?.derive?.source || [focusedTable?.id];
+        return sourceTables;
     }
 }
-
 
 // derived field: extra all field items from the table
 export const getDataFieldItems = (baseTable: DictTable): FieldItem[] => {

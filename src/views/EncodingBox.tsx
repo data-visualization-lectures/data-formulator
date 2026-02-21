@@ -45,22 +45,11 @@ import _ from 'lodash';
 
 import '../scss/EncodingShelf.scss';
 import AnimateHeight from 'react-animate-height';
-import { deriveTransformExamplesV2, getDomains, getIconFromType, groupConceptItems } from './ViewUtils';
+import { getDomains, getIconFromType, groupConceptItems } from './ViewUtils';
 import { getUrls, authenticatedFetch } from '../app/utils';
 import { Type } from '../data/types';
 
-const GroupHeader = styled('div')(({ theme }) => ({
-    position: 'sticky',
-    top: '-8px',
-    padding: '4px 10px',
-    fontSize: '10px',
-    color: 'darkgray',
-    //backgroundColor: 'rbga(0,0,0,0.6)'
-  }));
-  
-  const GroupItems = styled('ul')({
-    padding: 0,
-  });
+
 
 let getChannelDisplay = (channel: Channel) => {
     if (channel == "x") {
@@ -143,6 +132,7 @@ export const EncodingBox: FC<EncodingBoxProps> = function EncodingBox({ channel,
 
     // use tables for infer domains
     const tables = useSelector((state: DataFormulatorState) => state.tables);
+
     const charts = useSelector((state: DataFormulatorState) => state.charts);
     let activeModel = useSelector(dfSelectors.getActiveModel);
     
@@ -155,7 +145,7 @@ export const EncodingBox: FC<EncodingBoxProps> = function EncodingBox({ channel,
     }
     
     let handleResetEncoding = () => {
-        dispatch(dfActions.updateChartEncoding({chartId, channel, encoding: {bin: false}}));
+        dispatch(dfActions.updateChartEncoding({chartId, channel, encoding: { }}));
     }
 
     // updating a property of the encoding
@@ -187,8 +177,6 @@ export const EncodingBox: FC<EncodingBoxProps> = function EncodingBox({ channel,
                 if (item.source === "conceptShelf") {
                     handleResetEncoding();
                     updateEncProp('fieldID', item.fieldID);
-                    updateEncProp('bin', false);
-                    //handleUpdateEncoding(channel, { 'fieldID': item.fieldID, bin: false });
                 } else if (item.source === "encodingShelf") {
                     handleSwapEncodingField(channel, item.channel);
                 } else {
@@ -197,11 +185,7 @@ export const EncodingBox: FC<EncodingBoxProps> = function EncodingBox({ channel,
             }
 
             if (item.type === 'operator-card') {
-                if (item.operator == 'bin') {
-                    dispatch(dfActions.updateChartEncodingProp({chartId, channel, prop: 'bin', value: true}));
-                } else {
-                    dispatch(dfActions.updateChartEncodingProp({chartId, channel, prop: 'aggregate', value: item.operator as AggrOp}));
-                }
+                dispatch(dfActions.updateChartEncodingProp({chartId, channel, prop: 'aggregate', value: item.operator as AggrOp}));
             }
 
             return { channel: channel }
@@ -264,13 +248,8 @@ export const EncodingBox: FC<EncodingBoxProps> = function EncodingBox({ channel,
         </FormControl>
     ] : [];
 
-    let domainItems = (field?.source == "custom" || field?.source == "original") ? getDomains(field as FieldItem, tables)[0] : [];
-    if (field?.source == "derived") {
-        domainItems = deriveTransformExamplesV2(
-            (field.transform as ConceptTransformation).code,
-            (field.transform as ConceptTransformation).parentIDs,
-            -1, conceptShelfItems, tables).map(p => p[1]);
-    }
+    let domainItems = field ? getDomains(field as FieldItem, tables)[0] : [];
+
     // deduplicate domain items
     domainItems = [...new Set(domainItems)];
 
@@ -510,9 +489,6 @@ export const EncodingBox: FC<EncodingBoxProps> = function EncodingBox({ channel,
         sx={{  backgroundColor: optBackgroundColor, width: field == undefined ? "100%" : "auto" }}
         onDelete={() => updateEncProp("aggregate", undefined)} color="default" //deleteIcon={<RemoveIcon />}
         label={encoding.aggregate == "average" ? "avg" : encoding.aggregate} size="small" />) : "";
-    let binDisplay = encoding.bin ? (<Chip key="bin-display" className="encoding-prop-chip"  color="default" label={"bin"} //deleteIcon={<RemoveIcon />}
-        sx={{  backgroundColor: optBackgroundColor }}
-        size="small" onDelete={() => updateEncProp("bin", false)} />) : "";
     let normalizedDisplay = encoding.stack ? (<Chip key="normalized-display" className="encoding-prop-chip" //deleteIcon={<RemoveIcon />} 
         color="default" sx={{  backgroundColor: optBackgroundColor }}
         label={"⌸"} size="small" onDelete={() => updateEncProp("stack", undefined)} />) : "";
@@ -528,7 +504,7 @@ export const EncodingBox: FC<EncodingBoxProps> = function EncodingBox({ channel,
                 console.log(`about to add ${option}`)
                 let newConept = {
                     id: `concept-${Date.now()}`, name: option, type: "auto" as Type, 
-                    description: "", source: "custom", domain: [],
+                    description: "", source: "custom", domain: [], tableRef: "custom",
                 } as FieldItem;
                 dispatch(dfActions.updateConceptItems(newConept));
                 updateEncProp("fieldID", newConept.id);
@@ -537,7 +513,8 @@ export const EncodingBox: FC<EncodingBoxProps> = function EncodingBox({ channel,
         }
     }
 
-    let conceptGroups = groupConceptItems(conceptShelfItems);
+    let conceptGroups = groupConceptItems(conceptShelfItems, tables);
+
     let createConceptInputBox = <Autocomplete
         key="concept-create-input-box"
         onChange={(event, value) => {
@@ -579,10 +556,10 @@ export const EncodingBox: FC<EncodingBoxProps> = function EncodingBox({ channel,
             }         
         }}
         renderGroup={(params) => (
-            <li>
-              <GroupHeader>{params.group}</GroupHeader>
-              <GroupItems>{params.children}</GroupItems>
-            </li>
+            <Box>
+              <Box className="GroupHeader">{params.group}</Box>
+              <Box className="GroupItems">{params.children}</Box>
+            </Box>
           )}
         renderOption={(props, option) => {
             let renderOption = (conceptShelfItems.map(f => f.name).includes(option) || option == "...") ? option : `"${option}"`;
@@ -594,7 +571,7 @@ export const EncodingBox: FC<EncodingBoxProps> = function EncodingBox({ channel,
         }}
         freeSolo
         renderInput={(params) => (
-            <TextField {...params} variant="standard" autoComplete='off' placeholder='field or concept'
+            <TextField {...params} variant="standard" autoComplete='off' placeholder='field'
                 sx={{height: "24px", "& .MuiInput-root": {height: "24px", fontSize: "small"}}} />
         )}
     />
@@ -605,14 +582,12 @@ export const EncodingBox: FC<EncodingBoxProps> = function EncodingBox({ channel,
         (encoding.aggregate == 'count' ? [ aggregateDisplay ] : [
             normalizedDisplay,
             aggregateDisplay,
-            binDisplay,
             createConceptInputBox
         ]) 
         : 
         [
             normalizedDisplay,
             aggregateDisplay,
-            binDisplay,
             fieldComponent
         ]
 

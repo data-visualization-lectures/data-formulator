@@ -17,7 +17,7 @@ import { DictTable } from "../components/ComponentType";
 
 import DeleteIcon from '@mui/icons-material/Delete';
 import { getUrls, authenticatedFetch } from '../app/utils';
-import { createTableFromFromObjectArray, createTableFromText, loadDataWrapper } from '../data/utils';
+import { createTableFromFromObjectArray, createTableFromText, loadTextDataWrapper, loadBinaryDataWrapper } from '../data/utils';
 
 import CloseIcon from '@mui/icons-material/Close';
 import KeyboardReturnIcon from '@mui/icons-material/KeyboardReturn';
@@ -29,7 +29,7 @@ import CancelIcon from '@mui/icons-material/Cancel';
 
 import ReactDiffViewer from 'react-diff-viewer'
 
-import { dfActions, dfSelectors, fetchFieldSemanticType } from '../app/dfSlice';
+import { DataFormulatorState, dfActions, dfSelectors, fetchFieldSemanticType } from '../app/dfSlice';
 import { useDispatch, useSelector } from 'react-redux';
 import { useState } from 'react';
 import { AppDispatch } from '../app/store';
@@ -110,7 +110,7 @@ export const TableSelectionView: React.FC<TableSelectionViewProps> = function Ta
             variant="scrollable"
             value={value}
             onChange={handleChange}
-            aria-label="Vertical tabs example"
+            aria-label="Vertical tabs"
             sx={{ borderRight: 1, borderColor: 'divider', minWidth: 120 }}
         >
             {tabTitiles.map((title, i) => <Tab wrapped key={i} label={title} sx={{textTransform: "none", width: 120}} {...a11yProps(0)} />)}
@@ -177,7 +177,7 @@ export const TableSelectionDialog: React.FC<{ buttonElement: any }> = function T
             .then((response) => response.json())
             .then((result) => {
                 let tableChallenges : TableChallenges[] = result.map((info: any) => {
-                    let table = createTableFromFromObjectArray(info["name"], JSON.parse(info["snapshot"]))
+                    let table = createTableFromFromObjectArray(info["name"], JSON.parse(info["snapshot"]), true)
                     return {table: table, challenges: info["challenges"], name: info["name"]}
                 }).filter((t : TableChallenges | undefined) => t != undefined);
                 setDatasetPreviews(tableChallenges);
@@ -221,9 +221,9 @@ export const TableSelectionDialog: React.FC<{ buttonElement: any }> = function T
                                 return response.text()
                             })
                             .then((text) => {         
-                                let fullTable = createTableFromFromObjectArray(tableChallenges.table.id, JSON.parse(text));
+                                let fullTable = createTableFromFromObjectArray(tableChallenges.table.id, JSON.parse(text), true);
                                 if (fullTable) {
-                                    dispatch(dfActions.addTable(fullTable));
+                                    dispatch(dfActions.loadTable(fullTable));
                                     dispatch(fetchFieldSemanticType(fullTable));
                                     dispatch(dfActions.addChallenges({
                                         tableId: tableChallenges.table.id,
@@ -254,36 +254,119 @@ export interface TableUploadDialogProps {
     disabled: boolean;
 }
 
+const getUniqueTableName = (baseName: string, existingNames: Set<string>): string => {
+    let uniqueName = baseName;
+    let counter = 1;
+    while (existingNames.has(uniqueName)) {
+        uniqueName = `${baseName}_${counter}`;
+        counter++;
+    }
+    return uniqueName;
+};
+
 export const TableUploadDialog: React.FC<TableUploadDialogProps> = ({ buttonElement, disabled }) => {
-
     const dispatch = useDispatch<AppDispatch>();
+    const inputRef = React.useRef<HTMLInputElement>(null);
+    const existingTables = useSelector((state: DataFormulatorState) => state.tables);
+    const existingNames = new Set(existingTables.map(t => t.id));
 
-    let $uploadInputFile = React.createRef<HTMLInputElement>();
+    let handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>): void => {
+        const files = event.target.files;
 
-    let handleFileUpload = (event: React.FormEvent<HTMLElement>): void => {
-        const target: any = event.target;
-        if (target && target.files) {
-            for (let file of target.files) {
-                //const file: File = target.files[0];
-                (file as File).text().then((text) => {
-                    let table = loadDataWrapper(file.name, text, file.type);
-                    if (table) {
-                        dispatch(dfActions.addTable(table));
-                        dispatch(fetchFieldSemanticType(table));
+        if (files) {
+            for (let file of files) {
+                const uniqueName = getUniqueTableName(file.name, existingNames);
+                
+                // Check if file is a text type (csv, tsv, json)
+                if (file.type === 'text/csv' || 
+                    file.type === 'text/tab-separated-values' || 
+                    file.type === 'application/json' ||
+                    file.name.endsWith('.csv') || 
+                    file.name.endsWith('.tsv') || 
+                    file.name.endsWith('.json')) {
+
+                    // Check if file is larger than 5MB
+                    const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB in bytes
+                    if (file.size > MAX_FILE_SIZE) {
+                        dispatch(dfActions.addMessages({
+                            "timestamp": Date.now(),
+                            "type": "error",
+                            "value": `File ${file.name} is too large (${(file.size / (1024 * 1024)).toFixed(2)}MB), upload it via DATABASE option instead.`
+                        }));
+                        continue; // Skip this file and process the next one
                     }
-                });
+                    
+                    // Handle text files
+                    file.text().then((text) => {
+                        let table = loadTextDataWrapper(uniqueName, text, file.type);
+                        if (table) {
+                            dispatch(dfActions.loadTable(table));
+                            dispatch(fetchFieldSemanticType(table));
+                        }
+                    });
+                } else if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                           file.type === 'application/vnd.ms-excel' ||
+                           file.name.endsWith('.xlsx') || 
+                           file.name.endsWith('.xls')) {
+                    // Handle Excel files
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const arrayBuffer = e.target?.result as ArrayBuffer;
+                        if (arrayBuffer) {
+                            let tables = loadBinaryDataWrapper(uniqueName, arrayBuffer);
+                            for (let table of tables) {
+                                dispatch(dfActions.loadTable(table));
+                                dispatch(fetchFieldSemanticType(table));
+                            }
+                            if (tables.length == 0) {
+                                dispatch(dfActions.addMessages({
+                                    "timestamp": Date.now(),
+                                    "type": "error",
+                                    "value": `Failed to parse Excel file ${file.name}. Please check the file format.`
+                                }));
+                            }
+                        }
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else {
+                    // Unsupported file type
+                    dispatch(dfActions.addMessages({
+                        "timestamp": Date.now(),
+                        "type": "error",
+                        "value": `Unsupported file format: ${file.name}. Please use CSV, TSV, JSON, or Excel files.`
+                    }));
+                }
             }
+        }
+        if (inputRef.current) {
+            inputRef.current.value = '';
         }
     };
 
-    return <Button sx={{fontSize: "inherit"}} variant="text" color="primary" 
-                   disabled={disabled}>
-                <Input inputProps={{ accept: '.csv,.tsv,.json', multiple: true  }} id="upload-data-file"
-                    type="file"  sx={{ display: 'none' }} aria-hidden={true} 
-                    ref={$uploadInputFile} onChange={handleFileUpload}
-                />
+    return (
+        <>
+            <Input
+                inputProps={{ 
+                    accept: '.csv,.tsv,.json,.xlsx,.xls',
+                    multiple: true,
+                }}
+                id="upload-data-file"
+                type="file"
+                sx={{ display: 'none' }}
+                inputRef={inputRef}
+                onChange={handleFileUpload}
+            />
+            <Button 
+                sx={{fontSize: "inherit"}} 
+                variant="text" 
+                color="primary" 
+                disabled={disabled}
+                onClick={() => inputRef.current?.click()}
+            >
                 {buttonElement}
-            </Button>;
+            </Button>
+        </>
+    );
 }
 
 
@@ -291,72 +374,6 @@ export interface TableCopyDialogProps {
     buttonElement: any;
     disabled: boolean;
 }
-
-export const TableCopyDialog: React.FC<TableCopyDialogProps> = ({ buttonElement, disabled }) => {
-
-    const [dialogOpen, setDialogOpen] = useState<boolean>(false);
-    const [tableName, setTableName] = useState<string>("");
-    const [tableContent, setTableContent] = useState<string>("");
-
-    const dispatch = useDispatch<AppDispatch>();
-
-    let handleSubmitContent = (): void => {
-
-        let table : undefined | DictTable = undefined;
-        try {
-            let content = JSON.parse(tableContent);
-            table = createTableFromFromObjectArray(tableName || 'dataset', content);
-        } catch (error) {
-            table = createTableFromText(tableName || 'dataset', tableContent);
-        }
-
-        if (table) {
-            dispatch(dfActions.addTable(table));
-            dispatch(fetchFieldSemanticType(table));
-        }        
-    };
-
-    let dialog = <Dialog key="table-selection-dialog" onClose={()=>{setDialogOpen(false)}} open={dialogOpen}
-            sx={{ '& .MuiDialog-paper': { maxWidth: '80%', maxHeight: 800, minWidth: 800 } }}
-        >
-            <DialogTitle  sx={{display: "flex"}}>Paste & Upload Data
-                <IconButton
-                    sx={{marginLeft: "auto"}}
-                    edge="start"
-                    size="small"
-                    color="inherit"
-                    onClick={()=>{ setDialogOpen(false); }}
-                    aria-label="close"
-                >
-                    <CloseIcon fontSize="inherit"/>
-                </IconButton>
-            </DialogTitle>
-            <DialogContent sx={{overflowX: "hidden", padding: 2, display: "flex", flexDirection: "column"}} dividers>
-                <TextField sx={{marginBottom: 1}} size="small" value={tableName} onChange={(event) => { setTableName(event.target.value); }} 
-                           autoComplete='off' id="outlined-basic" label="dataset name" variant="outlined" />
-                <TextField autoFocus size="small" id="upload content" value={tableContent} maxRows={20}
-                            onChange={(event) => { setTableContent(event.target.value); }}
-                            autoComplete='off'
-                            label="content (csv, tsv, or json format)" variant="outlined" multiline minRows={15} />
-            </ DialogContent>
-            <DialogActions>
-                <Button variant="contained" size="small" onClick={()=>{ setDialogOpen(false); }}>cancel</Button>
-                <Button variant="contained" size="small" onClick={()=>{ setDialogOpen(false); handleSubmitContent(); }} >
-                    upload
-                </Button>
-            </DialogActions>
-        </Dialog>;
-
-    return <>
-        <Button sx={{fontSize: "inherit"}} variant="text" color="primary" 
-                    disabled={disabled} onClick={()=>{setDialogOpen(true)}}>
-                {buttonElement}
-        </Button>
-        {dialog}
-    </>;
-}
-
-
 
 export interface TableURLDialogProps {
     buttonElement: any;
@@ -383,13 +400,13 @@ export const TableURLDialog: React.FC<TableURLDialogProps> = ({ buttonElement, d
             let table : undefined | DictTable = undefined;
             try {
                 let jsonContent = JSON.parse(content);
-                table = createTableFromFromObjectArray(tableName || 'dataset', jsonContent);
+                table = createTableFromFromObjectArray(tableName || 'dataset', jsonContent, true);
             } catch (error) {
                 table = createTableFromText(tableName || 'dataset', content);
             }
 
             if (table) {
-                dispatch(dfActions.addTable(table));
+                dispatch(dfActions.loadTable(table));
                 dispatch(fetchFieldSemanticType(table));
             }        
         })
@@ -459,17 +476,33 @@ export const TableCopyDialogV2: React.FC<TableCopyDialogProps> = ({ buttonElemen
     let theme = useTheme()
 
     const dispatch = useDispatch<AppDispatch>();
+    const existingTables = useSelector((state: DataFormulatorState) => state.tables);
+    const existingNames = new Set(existingTables.map(t => t.id));
 
     let handleSubmitContent = (tableStr: string): void => {
-        let table : undefined | DictTable = undefined;
+        let table: undefined | DictTable = undefined;
+        
+        // Generate a short unique name based on content and time if no name provided
+        const defaultName = (() => {
+            const hashStr = tableStr.substring(0, 100) + Date.now();
+            const hashCode = hashStr.split('').reduce((acc, char) => {
+                return ((acc << 5) - acc) + char.charCodeAt(0) | 0;
+            }, 0);
+            const shortHash = Math.abs(hashCode).toString(36).substring(0, 4);
+            return `data-${shortHash}`;
+        })();
+
+        const baseName = tableName || defaultName;
+        const uniqueName = getUniqueTableName(baseName, existingNames);
+
         try {
             let content = JSON.parse(tableStr);
-            table = createTableFromFromObjectArray(tableName || 'data-0', content);
+            table = createTableFromFromObjectArray(uniqueName, content, true);
         } catch (error) {
-            table = createTableFromText(tableName || 'data-0', tableStr);
+            table = createTableFromText(uniqueName, tableStr);
         }
         if (table) {
-            dispatch(dfActions.addTable(table));
+            dispatch(dfActions.loadTable(table));
             dispatch(fetchFieldSemanticType(table));
         }        
     };
@@ -605,7 +638,8 @@ export const TableCopyDialogV2: React.FC<TableCopyDialogProps> = ({ buttonElemen
                                 flexDirection: "column", 
                                 "& .MuiOutlinedInput-root.Mui-disabled": {backgroundColor: 'rgba(0,0,0,0.05)'}}} dividers>
                 <Box sx={{width: '100%', marginBottom: 1, display:'flex'}}>
-                    <TextField sx={{flex: 1}} disabled={loadFromURL} size="small" value={tableName} onChange={(event) => { setTableName(event.target.value); }} 
+                    <TextField sx={{flex: 1}} disabled={loadFromURL} size="small" 
+                            value={tableName} onChange={(event) => { setTableName(event.target.value); }} 
                            autoComplete='off' id="outlined-basic" label="dataset name" variant="outlined" />
                     <Divider sx={{margin: 1}} flexItem orientation='vertical'/>
                     <Button sx={{marginLeft: 0, textTransform: 'none'}} onClick={() => {setLoadFromURL(!loadFromURL)}} 
@@ -631,16 +665,6 @@ export const TableCopyDialogV2: React.FC<TableCopyDialogProps> = ({ buttonElemen
                     {cleaningInProgress && tableContentType == "text" ? <LinearProgress sx={{ width: '100%', height: "calc(100% - 8px)", marginTop: 1, minHeight: 200, opacity: 0.1, position: 'absolute', zIndex: 1 }} /> : ""}
                     {viewTable  ? 
                     <>
-                        {/* <ReactDiffViewer
-                            leftTitle={'source'}
-                            rightTitle={'cleaning suggestions'}
-                            styles={newStyles}
-                            oldValue={tableContent}
-                            showDiffOnly={false}
-                            newValue={cleanTableContent.content}
-                            splitView={true}
-                            renderContent={renderLines}
-                        /> */}
                         <CustomReactTable
                             rows={viewTable.rows} 
                             rowsPerPageNum={-1} compact={false}
@@ -754,3 +778,4 @@ export const TableCopyDialogV2: React.FC<TableCopyDialogProps> = ({ buttonElemen
         {dialog}
     </>;
 }
+

@@ -33,19 +33,15 @@ import { DndProvider } from 'react-dnd'
 import { HTML5Backend } from 'react-dnd-html5-backend'
 
 import { SelectableGroup } from 'react-selectable-fast';
-import { TableCopyDialogV2, TableSelectionDialog, TableURLDialog } from './TableSelectionView';
-import { TableCopyDialog, TableUploadDialog } from './TableSelectionView';
+import { TableCopyDialogV2, TableSelectionDialog } from './TableSelectionView';
+import { TableUploadDialog } from './TableSelectionView';
 import { toolName } from '../app/App';
 import { DataThread } from './DataThread';
 
 import dfLogo from '../assets/df-logo.png';
 import exampleImageTable from "../assets/example-image-table.png";
 import { ModelSelectionButton } from './ModelSelectionDialog';
-
-const MainSplitPane = styled(SplitPane)(({ theme }) => ({
-    //height: 'calc(100% - 49px) !important',
-    //left: '121px !important'
-}));
+import { DBTableSelectionDialog } from './DBTableManager';
 
 //type AppProps = ConnectedProps<typeof connector>;
 
@@ -54,7 +50,7 @@ export const DataFormulatorFC = ({ }) => {
     const displayPanelSize = useSelector((state: DataFormulatorState) => state.displayPanelSize);
     const visPaneSize = useSelector((state: DataFormulatorState) => state.visPaneSize);
     const tables = useSelector((state: DataFormulatorState) => state.tables);
-    const selectedModel = useSelector((state: DataFormulatorState) => state.selectedModel);
+    const selectedModelId = useSelector((state: DataFormulatorState) => state.selectedModelId);
 
     const dispatch = useDispatch();
 
@@ -89,7 +85,7 @@ export const DataFormulatorFC = ({ }) => {
         </SplitPane>);
 
     const splitPane = ( // @ts-ignore
-        <MainSplitPane split="vertical"
+        <SplitPane split="vertical"
             maxSize={440}
             minSize={320}
             primary="second"
@@ -106,7 +102,7 @@ export const DataFormulatorFC = ({ }) => {
                 {conceptEncodingPanel}
                 {/* <InfoPanelFC $tableRef={$tableRef}/> */}
             </Box>
-        </MainSplitPane>);
+        </SplitPane>);
 
     const fixedSplitPane = ( 
         <Box sx={{display: 'flex', flexDirection: 'row', height: '100%'}}>
@@ -142,7 +138,7 @@ Totals (7 entries)	5	5	5	15
             
             <Typography variant="h4">
                 Load data from
-                <TableSelectionDialog  buttonElement={"Examples"} />, <TableUploadDialog buttonElement={"file"} disabled={false} />, or <TableCopyDialogV2 buttonElement={"clipboard"} disabled={false} /> 
+                <TableSelectionDialog  buttonElement={"Examples"} />, <TableUploadDialog buttonElement={"file"} disabled={false} />, <TableCopyDialogV2 buttonElement={"clipboard"} disabled={false} /> or <DBTableSelectionDialog buttonElement={"Database"} />
             </Typography>
             <Typography sx={{  width: 960, margin: "auto" }} variant="body1">
                 Besides formatted data (csv, tsv or json), you can copy-paste&nbsp;
@@ -174,14 +170,12 @@ Totals (7 entries)	5	5	5	15
     </Box>;
 
     console.log("selected model?")
-    console.log(selectedModel)
-
+    console.log(selectedModelId)
+    
     return (
-        <Box sx={{ display: 'block', width: "100%", height: 'calc(100vh - 49px)' }}>
+        <Box sx={{ display: 'block', width: "100%", height: 'calc(100% - 49px)' }}>
             <DndProvider backend={HTML5Backend}>
-                {selectedModel == undefined ? modelSelectionDialogBox : (tables.length > 0 ? fixedSplitPane : dataUploadRequestBox)} 
+                {selectedModelId == undefined ? modelSelectionDialogBox : (tables.length > 0 ? fixedSplitPane : dataUploadRequestBox)} 
             </DndProvider>
-            
-
         </Box>);
 }

@@ -2,15 +2,12 @@
 # Licensed under the MIT License.
 
 import json
+import pandas as pd
 
 from data_formulator.agents.agent_utils import extract_json_objects, generate_data_summary, extract_code_from_gpt_response
-from data_formulator.agents.agent_data_transform_v2 import completion_response_wrapper
-
 import data_formulator.py_sandbox as py_sandbox
 
 import traceback
-
-
 import logging
 
 logger = logging.getLogger(__name__)
@@ -52,7 +49,7 @@ Concretely:
     (4) "visualization_fields" should be no more than 3 (for x,y,legend).
     (5) "chart_type" must be one of "point", "bar", "line", or "boxplot"
 
-    2. Then, write a python function based on the inferred goal, the function input is a dataframe "df" and the output is the transformed dataframe "transformed_df". "transformed_df" should contain all "output_fields" from the refined goal.
+    2. Then, write a python function based on the inferred goal, the function input is a dataframe "df" (or multiple dataframes based on tables presented in the [CONTEXT] section) and the output is the transformed dataframe "transformed_df". "transformed_df" should contain all "output_fields" from the refined goal.
 The python function must follow the template provided in [TEMPLATE], do not import any other libraries or modify function name. The function should be as simple as possible and easily readable. 
 If there is no data transformation needed based on "output_fields", the transformation function can simply "return df".
 
@@ -63,10 +60,14 @@ import pandas as pd
 import collections
 import numpy as np
 
-def transform_data(df):
+def transform_data(df1, df2, ...): 
     # complete the template here
     return transformed_df
 ```
+
+note: 
+- if the user provided one table, then it should be def transform_data(df1), if the user provided multiple tables, then it should be def transform_data(df1, df2, ...) and you should consider the join between tables to derive the output.
+- try to use table names to refer to the input dataframes, for example, if the user provided two tables city and weather, you can use `transform_data(df_city, df_weather)` to refer to the two dataframes.
 
     3. The [OUTPUT] must only contain a json object representing the refined goal and a python code block representing the transformation code, do not add any extra text explanation.
 '''
@@ -124,12 +125,12 @@ def transform_data(df):
 ```
 """
 
-class DataRecAgent(object):
+class PythonDataRecAgent(object):
 
-    def __init__(self, client, model, system_prompt=None):
+    def __init__(self, client, system_prompt=None, exec_python_in_subprocess=False):
         self.client = client
-        self.model = model
         self.system_prompt = system_prompt if system_prompt is not None else SYSTEM_PROMPT
+        self.exec_python_in_subprocess = exec_python_in_subprocess
 
     def process_gpt_response(self, input_tables, messages, response):
         """process gpt response to handle execution"""
@@ -158,25 +159,36 @@ class DataRecAgent(object):
                 code_str = code_blocks[-1]
 
                 try:
-                    result = py_sandbox.run_transform_in_sandbox2020(code_str, [t['rows'] for t in input_tables])
+                    result = py_sandbox.run_transform_in_sandbox2020(code_str, [pd.DataFrame.from_records(t['rows']) for t in input_tables], self.exec_python_in_subprocess)
                     result['code'] = code_str
 
                     if result['status'] == 'ok':
-                        result['content'] = json.loads(result['content'])
+                        result_df = result['content']
+                        result['content'] = {
+                            'rows': result_df.to_dict(orient='records'),
+                        }
                     else:
                         logger.info(result['content'])
                 except Exception as e:
                     logger.warning('other error:')
                     error_message = traceback.format_exc()
                     logger.warning(error_message)
-                    result = {'status': 'other error', 'code': code_str, 'content': f"Unexpected error: {error_message}"}
+                    result = {'status': 'other error', 'code': code_str, 'content': f"Unexpected error executing the code, please try again."}
             else:
-                result = {'status': 'no transformation', 'code': "", 'content': input_tables[0]['rows']}
+                result = {'status': 'error', 'code': "", 'content': "No code block found in the response. The model is unable to generate code to complete the task."}
             
             result['dialog'] = [*messages, {"role": choice.message.role, "content": choice.message.content}]
-            result['agent'] = 'DataRecAgent'
+            result['agent'] = 'PythonDataRecAgent'
             result['refined_goal'] = refined_goal
             candidates.append(result)
+
+        logger.info("=== Recommendation Candidates ===>")
+        for candidate in candidates:
+            for key, value in candidate.items():
+                if key in ['dialog', 'content']:
+                    logger.info(f"##{key}:\n{str(value)[:1000]}...")
+                else:
+                    logger.info(f"## {key}:\n{value}")
 
         return candidates
     
@@ -192,7 +204,7 @@ class DataRecAgent(object):
         messages = [{"role":"system", "content": self.system_prompt},
                     {"role":"user","content": user_query}]
         
-        response = completion_response_wrapper(self.client, self.model, messages, n)
+        response = self.client.get_completion(messages = messages)
         
         return self.process_gpt_response(input_tables, messages, response)
         
@@ -204,7 +216,6 @@ class DataRecAgent(object):
 
         messages = [*dialog, {"role":"user", "content": f"Update: \n\n{new_instruction}"}]
 
-        ##### the part that calls open_ai
-        response = completion_response_wrapper(self.client, self.model, messages, n)
+        response = self.client.get_completion(messages = messages)
 
         return self.process_gpt_response(input_tables, messages, response)

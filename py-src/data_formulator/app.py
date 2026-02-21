@@ -10,53 +10,66 @@ mimetypes.add_type('application/javascript', '.js')
 mimetypes.add_type('application/javascript', '.mjs')
 
 import flask
-from flask import Flask, request, send_from_directory, redirect, url_for
+from flask import Flask, request, send_from_directory, session
 from flask import stream_with_context, Response
-import html
-import pandas as pd
 
 import webbrowser
 import threading
 from functools import wraps
+import numpy as np
+import datetime
+import time
 
+import logging
 from flask_cors import CORS
 import jwt as pyjwt
 
 import json
-import time
 from pathlib import Path
 
 from vega_datasets import data as vega_data
 
-from data_formulator.agents.agent_concept_derive import ConceptDeriveAgent
-from data_formulator.agents.agent_data_transform_v2 import DataTransformationAgentV2
-from data_formulator.agents.agent_data_rec import DataRecAgent
-
-from data_formulator.agents.agent_sort_data import SortDataAgent
-from data_formulator.agents.agent_data_load import DataLoadAgent
-from data_formulator.agents.agent_data_clean import DataCleanAgent
-from data_formulator.agents.agent_code_explanation import CodeExplanationAgent
-
-from data_formulator.agents.client_utils import get_client
-
 from dotenv import load_dotenv
+import secrets
+import base64
 
 APP_ROOT = Path(os.path.join(Path(__file__).parent)).absolute()
 
-print(APP_ROOT)
-
-# try to look for stored openAI keys information from the ROOT dir, 
-# this file might be in one of the two locations
-load_dotenv(os.path.join(APP_ROOT, "..", "..", 'openai-keys.env'))
-load_dotenv(os.path.join(APP_ROOT, 'openai-keys.env'))
-
 import os
 
-app = Flask(__name__, static_url_path='', static_folder=os.path.join(APP_ROOT, "dist"))
+# blueprints
+from data_formulator.tables_routes import tables_bp
+from data_formulator.agent_routes import agent_bp
 
+app = Flask(__name__, static_url_path='', static_folder=os.path.join(APP_ROOT, "dist"))
+app.secret_key = secrets.token_hex(16)  # Generate a random secret key for sessions
+
+class CustomJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.int64):
+            return int(obj)
+        if isinstance(obj, (bytes, bytearray)):
+            return base64.b64encode(obj).decode('ascii')
+        return super().default(obj)
+
+app.json_encoder = CustomJSONEncoder
+
+# Load env files early
+load_dotenv(os.path.join(APP_ROOT, "..", "..", 'api-keys.env'))
+load_dotenv(os.path.join(APP_ROOT, 'api-keys.env'))
+load_dotenv(os.path.join(APP_ROOT, '.env'))
+
+# Add this line to store args at app level
+app.config['CLI_ARGS'] = {
+    'exec_python_in_subprocess': os.environ.get('EXEC_PYTHON_IN_SUBPROCESS', 'false').lower() == 'true',
+    'disable_display_keys': os.environ.get('DISABLE_DISPLAY_KEYS', 'false').lower() == 'true'
+}
+
+# CORS setup
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5000").split(",")
 CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 
+# Supabase JWT auth
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
 
 def require_auth(f):
@@ -75,11 +88,36 @@ def require_auth(f):
         return f(*args, **kwargs)
     return decorated
 
+# register blueprints
+app.register_blueprint(tables_bp)
+app.register_blueprint(agent_bp)
+
+print(APP_ROOT)
+
+# Configure root logger for general application logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
+
+# Configure Flask app logger to use the same settings
+app.logger.handlers = []
+for handler in logging.getLogger().handlers:
+    app.logger.addHandler(handler)
+
+# Example usage:
+logger.info("Application level log")  # General application logging
+app.logger.info("Flask specific log") # Web request related logging
+
 @app.route('/health')
 def health_check():
     return flask.jsonify({'status': 'ok'}), 200
 
-@app.route('/vega-datasets')
+@app.route('/api/vega-datasets')
 @require_auth
 def get_example_dataset_list():
     dataset_names = vega_data.list_datasets()
@@ -185,10 +223,10 @@ def get_example_dataset_list():
             dataset_info.append(info_obj)
         except:
             pass
-    
+
     return flask.jsonify(dataset_info)
 
-@app.route('/vega-dataset/<path:path>')
+@app.route('/api/vega-dataset/<path:path>')
 @require_auth
 def get_datasets(path):
     try:
@@ -202,107 +240,20 @@ def get_datasets(path):
     response = data_object
     return response
 
-@app.route('/check-available-models', methods=['GET', 'POST'])
-@require_auth
-def check_available_models():
-
-    results = []
-
-    # dont need to check if it's empty
-    if os.getenv("ENDPOINT") is None:
-        return json.dumps(results)
-
-    client = get_client(os.getenv("ENDPOINT"), "")
-    models = [model.strip() for model in os.getenv("MODELS").split(',')]
-
-    for model in models:
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": "Respond 'I can hear you.' if you can hear me. Do not say anything other than 'I can hear you.'"},
-                ]
-            )
-
-            print(f"model: {model}")
-            print(f"welcome message: {response.choices[0].message.content}")
-
-            if "I can hear you." in response.choices[0].message.content:
-                results.append({
-                    "endpoint": "default",
-                    "key": "",
-                    "model": model
-                })
-        except:
-            pass
-
-    return json.dumps(results)
-
-@app.route('/test-model', methods=['GET', 'POST'])
-@require_auth
-def test_model():
-    
-    if request.is_json:
-        app.logger.info("# code query: ")
-        content = request.get_json()
-        endpoint = html.escape(content['endpoint'].strip())
-        key = html.escape(f"{content['key']}".strip())
-
-        print(content)
-
-        client = get_client(endpoint, key)
-        model = html.escape(content['model'].strip())
-
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": "Respond 'I can hear you.' if you can hear me. Do not say anything other than 'I can hear you.'"},
-                ]
-            )
-
-            print(f"model: {model}")
-            print(f"welcome message: {response.choices[0].message.content}")
-
-            if "I can hear you." in response.choices[0].message.content:
-                result = {
-                    "endpoint": endpoint,
-                    "key": key,
-                    "model": model,
-                    "status": 'ok',
-                    "message": ""
-                }
-        except Exception as e:
-            print(f"Error: {e}")
-            error_message = str(e)
-            result = {
-                "endpoint": endpoint,
-                "key": key,
-                "model": model,
-                "status": 'error',
-                "message": error_message,
-            }
-    else:
-        {'status': 'error'}
-    
-    return json.dumps(result)
-
 @app.route("/", defaults={"path": ""})
 def index_alt(path):
-    print(app.static_folder)
+    logger.info(app.static_folder)
     return send_from_directory(app.static_folder, "index.html")
 
 @app.errorhandler(404)
 def page_not_found(e):
     # your processing here
-    print(app.static_folder)
+    logger.info(app.static_folder)
     return send_from_directory(app.static_folder, "index.html") #'Hello 404!' #send_from_directory(app.static_folder, "index.html")
 
 ###### test functions ######
 
-@app.route('/hello')
+@app.route('/api/hello')
 def hello():
     values = [
             {"a": "A", "b": 28}, {"a": "B", "b": 55}, {"a": "C", "b": 43},
@@ -322,7 +273,7 @@ def hello():
     return json.dumps(spec)
 
 
-@app.route('/hello-stream')
+@app.route('/api/hello-stream')
 def streamed_response():
     def generate():
         values = [
@@ -346,241 +297,62 @@ def streamed_response():
             yield json.dumps(spec)
     return Response(stream_with_context(generate()))
 
+@app.route('/api/get-session-id', methods=['GET', 'POST'])
+def get_session_id():
+    """Endpoint to get or confirm a session ID from the client"""
+    # if it is a POST request, we expect a session_id in the body
+    # if it is a GET request, we do not expect a session_id in the query params
 
-###### agent related functions ######
-
-@app.route('/process-data-on-load', methods=['GET', 'POST'])
-@require_auth
-def process_data_on_load_request():
-
+    current_session_id = None
     if request.is_json:
-        app.logger.info("# process data query: ")
         content = request.get_json()
-        token = content["token"]
+        current_session_id = content.get("session_id", None)
 
-        client = get_client(content['model']['endpoint'], content['model']['key'])
-        model = content['model']['model']
-        app.logger.info(f" model: {content['model']}")
-        
-        agent = DataLoadAgent(client=client, model=model)
-        candidates = agent.run(content["input_data"])
-        
-        candidates = [c['content'] for c in candidates if c['status'] == 'ok']
-
-        response = flask.jsonify({ "status": "ok", "token": token, "result": candidates })
+    # Create session if it doesn't exist
+    if current_session_id is None:
+        if 'session_id' not in session:
+            session['session_id'] = secrets.token_hex(16)
+            session.permanent = True
+            logger.info(f"Created new session: {session['session_id']}")
     else:
-        response = flask.jsonify({ "token": -1, "status": "error", "result": [] })
+        # override the session_id
+        session['session_id'] = current_session_id
+        session.permanent = True
 
-    return response
+    return flask.jsonify({
+        "status": "ok",
+        "session_id": session['session_id']
+    })
 
-
-@app.route('/derive-concept-request', methods=['GET', 'POST'])
-@require_auth
-def derive_concept_request():
-
-    if request.is_json:
-        app.logger.info("# code query: ")
-        content = request.get_json()
-        token = content["token"]
-
-        client = get_client(content['model']['endpoint'], content['model']['key'])
-        model = content['model']['model']
-        app.logger.info(f" model: {content['model']}")
-        
-        agent = ConceptDeriveAgent(client=client, model=model)
-
-        #print(content["input_data"])
-
-        candidates = agent.run(content["input_data"], [f['name'] for f in content["input_fields"]], 
-                                       content["output_name"], content["description"])
-        
-        candidates = [c['code'] for c in candidates if c['status'] == 'ok']
-
-        response = flask.jsonify({ "status": "ok", "token": token, "result": candidates })
-    else:
-        response = flask.jsonify({ "token": -1, "status": "error", "result": [] })
-
-    return response
-
-
-@app.route('/clean-data', methods=['GET', 'POST'])
-@require_auth
-def clean_data_request():
-
-    if request.is_json:
-        app.logger.info("# data clean request")
-        content = request.get_json()
-        token = content["token"]
-
-        client = get_client(content['model']['endpoint'], content['model']['key'])
-        model = content['model']['model']
-
-        app.logger.info(f" model: {content['model']}")
-        
-        agent = DataCleanAgent(client=client, model=model)
-
-        candidates = agent.run(content['content_type'], content["raw_data"], content["image_cleaning_instruction"])
-        
-        candidates = [c for c in candidates if c['status'] == 'ok']
-
-        response = flask.jsonify({ "status": "ok", "token": token, "result": candidates })
-    else:
-        response = flask.jsonify({ "token": -1, "status": "error", "result": [] })
-
-    return response
-
-
-@app.route('/codex-sort-request', methods=['GET', 'POST'])
-@require_auth
-def sort_data_request():
-
-    if request.is_json:
-        app.logger.info("# sort query: ")
-        content = request.get_json()
-        token = content["token"]
-
-        client = get_client(content['model']['endpoint'], content['model']['key'])
-        model = content['model']['model']
-        app.logger.info(f" model: {content['model']}")
-
-        agent = SortDataAgent(client=client, model=model)
-        candidates = agent.run(content['field'], content['items'])
-
-        #candidates, dialog = limbo_concept.call_codex_sort(content["items"], content["field"])
-        candidates = candidates if candidates != None else []
-        response = flask.jsonify({ "status": "ok", "token": token, "result": candidates })
-    else:
-        response = flask.jsonify({ "token": -1, "status": "error", "result": [] })
-
-    return response
-
-
-@app.route('/derive-data', methods=['GET', 'POST'])
-@require_auth
-def derive_data():
-
-    if request.is_json:
-        app.logger.info("# request data: ")
-        content = request.get_json()        
-        token = content["token"]
-
-        client = get_client(content['model']['endpoint'], content['model']['key'])
-        model = content['model']['model']
-        app.logger.info(f" model: {content['model']}")
-
-        # each table is a dict with {"name": xxx, "rows": [...]}
-        input_tables = content["input_tables"]
-        new_fields = content["new_fields"]
-        instruction = content["extra_prompt"]
-
-        print("spec------------------------------")
-        print(new_fields)
-        print(instruction)
-
-        mode = "transform"
-        if len(new_fields) == 0:
-            mode = "recommendation"
-
-        if mode == "recommendation":
-            # now it's in recommendation mode
-            agent = DataRecAgent(client, model)
-            results = agent.run(input_tables, instruction)
-        else:
-            agent = DataTransformationAgentV2(client=client, model=model)
-            results = agent.run(input_tables, instruction, [field['name'] for field in new_fields])
-
-        repair_attempts = 0
-        while results[0]['status'] == 'error' and repair_attempts == 0: # only try once
-            error_message = results[0]['content']
-            new_instruction = f"We run into the following problem executing the code, please fix it:\n\n{error_message}\n\nPlease think step by step, reflect why the error happens and fix the code so that no more errors would occur."
-
-            prev_dialog = results[0]['dialog']
-
-            if mode == "transform":
-                results = agent.followup(input_tables, prev_dialog, [field['name'] for field in new_fields], new_instruction)
-            if mode == "recommendation":
-                results = agent.followup(input_tables, prev_dialog, new_instruction)
-
-            repair_attempts += 1
-        
-        response = flask.jsonify({ "token": token, "status": "ok", "results": results })
-    else:
-        response = flask.jsonify({ "token": "", "status": "error", "results": [] })
-
-    return response
-
-@app.route('/refine-data', methods=['GET', 'POST'])
-@require_auth
-def refine_data():
-
-    if request.is_json:
-        app.logger.info("# request data: ")
-        content = request.get_json()        
-        token = content["token"]
-
-        client = get_client(content['model']['endpoint'], content['model']['key'])
-        model = content['model']['model']
-        app.logger.info(f" model: {content['model']}")
-
-        # each table is a dict with {"name": xxx, "rows": [...]}
-        input_tables = content["input_tables"]
-        output_fields = content["output_fields"]
-        dialog = content["dialog"]
-        new_instruction = content["new_instruction"]
-        
-        print("previous dialog")
-        print(dialog)
-
-        # always resort to the data transform agent       
-        agent = DataTransformationAgentV2(client, model=model)
-        results = agent.followup(input_tables, dialog, [field['name'] for field in output_fields], new_instruction)
-
-        repair_attempts = 0
-        while results[0]['status'] == 'error' and repair_attempts == 0: # only try once
-            error_message = results[0]['content']
-            new_instruction = f"We run into the following problem executing the code, please fix it:\n\n{error_message}\n\nPlease think step by step, reflect why the error happens and fix the code so that no more errors would occur."
-            prev_dialog = results[0]['dialog']
-
-            results = agent.followup(input_tables, prev_dialog, [field['name'] for field in output_fields], new_instruction)
-            repair_attempts += 1
-
-        response = flask.jsonify({ "token": token, "status": "ok", "results": results})
-    else:
-        response = flask.jsonify({ "token": "", "status": "error", "results": []})
-
-    return response
-
-@app.route('/code-expl', methods=['GET', 'POST'])
-@require_auth
-def request_code_expl():
-    if request.is_json:
-        app.logger.info("# request data: ")
-        content = request.get_json()        
-        token = content["token"]
-
-        client = get_client(content['model']['endpoint'], content['model']['key'])
-        model = content['model']['model']
-        app.logger.info(f" model: {content['model']}")
-
-        # each table is a dict with {"name": xxx, "rows": [...]}
-        input_tables = content["input_tables"]
-        code = content["code"]
-        
-        code_expl_agent = CodeExplanationAgent(client=client, model=model)
-        expl = code_expl_agent.run(input_tables, code)
-    else:
-        expl = ""
-    return expl
+@app.route('/api/app-config', methods=['GET'])
+def get_app_config():
+    """Provide frontend configuration settings from CLI arguments"""
+    args = app.config['CLI_ARGS']
+    config = {
+        "EXEC_PYTHON_IN_SUBPROCESS": args['exec_python_in_subprocess'],
+        "DISABLE_DISPLAY_KEYS": args['disable_display_keys'],
+        "SESSION_ID": session.get('session_id', None)
+    }
+    return flask.jsonify(config)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Data Formulator")
     parser.add_argument("-p", "--port", type=int, default=5000, help="The port number you want to use")
+    parser.add_argument("-e", "--exec-python-in-subprocess", action='store_true', default=False,
+        help="Whether to execute python in subprocess, it makes the app more secure (reducing the chance for the model to access the local machine), but increases the time of response")
+    parser.add_argument("-d", "--disable-display-keys", action='store_true', default=False,
+        help="Whether disable displaying keys in the frontend UI, recommended to turn on if you host the app not just for yourself.")
     return parser.parse_args()
 
 
 def run_app():
     args = parse_args()
+    # Override CLI args from actual args
+    app.config['CLI_ARGS'] = {
+        'exec_python_in_subprocess': args.exec_python_in_subprocess,
+        'disable_display_keys': args.disable_display_keys
+    }
     port = args.port or int(os.getenv("PORT", 5000))
     is_cloud = os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("PORT")
     if not is_cloud:
@@ -588,7 +360,7 @@ def run_app():
         threading.Timer(2, lambda: webbrowser.open(url, new=2)).start()
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     app.run(host='0.0.0.0', port=port, threaded=True, debug=debug)
-    
+
 if __name__ == '__main__':
     #app.run(debug=True, host='127.0.0.1', port=5000)
     #use 0.0.0.0 for public

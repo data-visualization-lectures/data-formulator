@@ -27,14 +27,14 @@ import '../scss/EncodingShelf.scss';
 import { createDictTable, DictTable } from "../components/ComponentType";
 import embed from 'vega-embed';
 
-import { getTriggers, getUrls, assembleChart, resolveChartFields, authenticatedFetch } from '../app/utils';
+import { getTriggers, getUrls, assembleVegaChart, resolveChartFields, authenticatedFetch } from '../app/utils';
 
 import { getChartTemplate } from '../components/ChartTemplates';
-import { chartAvailabilityCheck, generateChartSkeleton } from './VisualizationView';
+import { checkChartAvailability, generateChartSkeleton } from './VisualizationView';
 import TableRowsIcon from '@mui/icons-material/TableRowsOutlined';
 import InsightsIcon from '@mui/icons-material/Insights';
+import AnchorIcon from '@mui/icons-material/Anchor';
 
-import { findBaseFields } from './ViewUtils';
 import { AppDispatch } from '../app/store';
 
 import { EncodingShelfCard, TriggerCard } from './EncodingShelfCard';
@@ -55,7 +55,7 @@ export let ChartElementFC: FC<{chart: Chart, tableRows: any[], boxWidth?: number
 
     let chartTemplate = getChartTemplate(chart.chartType);
 
-    let [available, unfilledFields] = chartAvailabilityCheck(chart.encodingMap, conceptShelfItems, tableRows);
+    let available = checkChartAvailability(chart, conceptShelfItems, tableRows);
 
     if (chart.chartType == "Auto") {
         return <Box sx={{ position: "relative", display: "flex", flexDirection: "column", margin: 'auto', color: 'darkgray' }}>
@@ -74,7 +74,7 @@ export let ChartElementFC: FC<{chart: Chart, tableRows: any[], boxWidth?: number
     // }
 
     // prepare the chart to be rendered
-    let assembledChart = assembleChart(chart, conceptShelfItems, tableRows);
+    let assembledChart = assembleVegaChart(chart.chartType, chart.encodingMap, conceptShelfItems, tableRows);
     assembledChart["background"] = "transparent";
     // chart["autosize"] = {
     //     "type": "fit",
@@ -148,38 +148,14 @@ export let ChartElementFC: FC<{chart: Chart, tableRows: any[], boxWidth?: number
     return element;
 }
 
-let selectBaseTables = (activeFields: FieldItem[], conceptShelfItems: FieldItem[], tables: DictTable[]) : DictTable[] => {
-    
-    // if there is no active fields at all!!
-    if (activeFields.length == 0) {
-        return [tables[0]];
-    }
-
-    let activeBaseFields = conceptShelfItems.filter((field) => {
-        return activeFields.map(f => f.source == "derived" ? findBaseFields(f, conceptShelfItems).map(f2 => f2.id) : [f.id]).flat().includes(field.id);
-    });
-
-    let activeOriginalFields = activeBaseFields.filter(field => field.source == "original");
-    let activeCustomFields = activeBaseFields.filter(field => field.source == "custom");
-    let activeDerivedFields = activeFields.filter(f => f.source == "derived");
-
-    if (activeOriginalFields.length == 0 && activeFields.length > 0 && tables.length > 0) {
-        return [tables[0]];
-    }
-
-    let baseTables = tables.filter(t => activeOriginalFields.map(f => f.tableRef as string).includes(t.id));
-
-    return baseTables
-}
-
 export const EncodingShelfThread: FC<EncodingShelfThreadProps> = function ({ chartId }) {
 
-    // reference to states
     const tables = useSelector((state: DataFormulatorState) => state.tables);
     const charts = useSelector((state: DataFormulatorState) => state.charts);
     let activeThreadChartId = useSelector((state: DataFormulatorState) => state.activeThreadChartId);
     let activeModel = useSelector(dfSelectors.getActiveModel);
-    
+    const config = useSelector((state: DataFormulatorState) => state.config);
+
     let [reformulateRunning, setReformulteRunning] = useState<boolean>(false);
 
     let activeThreadChart = charts.find(c => c.id == activeThreadChartId);
@@ -204,11 +180,12 @@ export const EncodingShelfThread: FC<EncodingShelfThreadProps> = function ({ cha
 
         let mode = 'formulate';
 
-        let sourceTable = tables.find(t => t.id == trigger.tableId) as DictTable;
+        let triggerTable = tables.find(t => t.id == trigger.tableId) as DictTable;
+
+        let baseTables = trigger.sourceTableIds.map(id => tables.find(t => t.id == id)).filter(t => t != undefined);
+
         let overrideTableId = trigger.resultTableId;
 
-        let baseTableIds = sourceTable.derive?.source || [sourceTable.id];
-        let baseTables = tables.filter(t => baseTableIds.includes(t.id));
         if (baseTables.length == 0) {
             return;
         }
@@ -235,28 +212,29 @@ export const EncodingShelfThread: FC<EncodingShelfThreadProps> = function ({ cha
         let messageBody = JSON.stringify({
             token: token,
             mode,
-            input_tables: baseTables.map(t => {return { name: t.id.replace(/\.[^/.]+$/ , ""), rows: t.rows }}),
+            input_tables: baseTables.map(t => {return { name: t.virtual?.tableId || t.id.replace(/\.[^/.]+$/ , ""), rows: t.rows }}),
             new_fields: activeBaseFields.map(f => { return {name: f.name} }),
             extra_prompt: prompt,
-            model: activeModel
+            model: activeModel,
+            max_repair_attempts: config.maxRepairAttempts,
+            language: baseTables.some(t => t.virtual) ? "sql" : "python"
         }) 
-        let engine = getUrls().SERVER_DERIVE_DATA_URL;
 
-        console.log("current log")
-        console.log(sourceTable.derive?.dialog)
+        let engine = getUrls().DERIVE_DATA;
 
-
-        if (mode == "formulate" && sourceTable.derive?.dialog) {
+        if (triggerTable.derive?.dialog && !triggerTable.anchored) {
+            // make this compact by directly adding previous dialog as part of the message (as opposed to use refine_data)
             messageBody = JSON.stringify({
                 token: token,
                 mode,
-                input_tables: baseTables.map(t => {return { name: t.id.replace(/\.[^/.]+$/ , ""), rows: t.rows }}),
-                output_fields: activeBaseFields.map(f => { return {name: f.name } }),
-                dialog: sourceTable.derive?.dialog,
-                new_instruction: prompt,
-                model: activeModel
-            })
-            engine = getUrls().SERVER_REFINE_DATA_URL;
+                input_tables: baseTables.map(t => {return { name: t.virtual?.tableId || t.id.replace(/\.[^/.]+$/ , ""), rows: t.rows }}),
+                new_fields: activeBaseFields.map(f => { return {name: f.name} }),
+                extra_prompt: prompt,
+                additional_messages: triggerTable.derive?.dialog,
+                model: activeModel,
+                max_repair_attempts: config.maxRepairAttempts,
+                language: baseTables.some(t => t.virtual) ? "sql" : "python"
+            }) 
         }
 
         let message = {
@@ -271,7 +249,7 @@ export const EncodingShelfThread: FC<EncodingShelfThreadProps> = function ({ cha
 
         // timeout the request after 30 seconds
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        const timeoutId = setTimeout(() => controller.abort(), config.formulateTimeoutSeconds * 1000);
 
         setReformulteRunning(true);
     
@@ -286,7 +264,7 @@ export const EncodingShelfThread: FC<EncodingShelfThreadProps> = function ({ cha
                 if (data.results.length > 0) {
                     if (data["token"] == token) {
                         let candidates = data.results.filter((item: any) => {
-                            return item["status"] == "ok" && item["content"].length > 0 
+                            return item["status"] == "ok" 
                         });
 
                         if (candidates.length == 0) {
@@ -305,16 +283,26 @@ export const EncodingShelfThread: FC<EncodingShelfThreadProps> = function ({ cha
 
                             // process candidate table
                             let candidate = candidates[0];
+                            let rows = candidate["content"]["rows"];
+                            let code = candidate["code"];
+                            let dialog = candidate["dialog"];
                             let candidateTable = createDictTable(
                                 candidateTableId, 
-                                candidate["content"],
-                                {   code: candidate["code"], 
+                                rows,
+                                {   code: code, 
                                     codeExpl: "",
                                     source: baseTables.map(t => t.id), 
-                                    dialog: candidate["dialog"], 
+                                    dialog: dialog, 
                                     trigger: trigger 
                                 }
                             )
+
+                            if (candidate["content"]["virtual"]) {
+                                candidateTable.virtual = {
+                                    tableId: candidate["content"]["virtual"]["table_name"],
+                                    rowCount: candidate["content"]["virtual"]["row_count"]
+                                };
+                            }
 
                             let names = candidateTable.names;
                             let missingNames = names.filter(name => !conceptShelfItems.some(field => field.name == name));
@@ -322,7 +310,7 @@ export const EncodingShelfThread: FC<EncodingShelfThreadProps> = function ({ cha
                             let conceptsToAdd = missingNames.map((name) => {
                                 return {
                                     id: `concept-${name}-${Date.now()}`, name: name, type: "auto" as Type, 
-                                    description: "", source: "custom", temporary: true, domain: [],
+                                    description: "", source: "custom", tableRef: "custom", temporary: true, domain: [],
                                 } as FieldItem
                             });
 
@@ -392,47 +380,47 @@ export const EncodingShelfThread: FC<EncodingShelfThreadProps> = function ({ cha
                 }
             }).catch((error) => {
                 setReformulteRunning(false);
-           
                 dispatch(dfActions.changeChartRunningStatus({chartId, status: false}));
-                dispatch(dfActions.addMessages({
-                    "timestamp": Date.now(),
-                    "type": "error",
-                    "value": `Data formulation failed, please try again.`,
-                    "detail": error.message
-                }));
+           
+                // Check if the error was caused by the AbortController
+                if (error.name === 'AbortError') {
+                    dispatch(dfActions.addMessages({
+                        "timestamp": Date.now(),
+                        "type": "error",
+                        "value": `Data formulation timed out after ${config.formulateTimeoutSeconds} seconds. Consider breaking down the task, using a different model or prompt, or increasing the timeout limit.`,
+                        "detail": "Request exceeded timeout limit"
+                    }));
+                } else {
+                    dispatch(dfActions.addMessages({
+                        "timestamp": Date.now(),
+                        "type": "error",
+                        "value": `Data formulation failed, please try again.`,
+                        "detail": error.message
+                    }));
+                }
             });
     }
 
-    //let triggers = currentTable.derive.triggers;
-    let tableList = activeTableThread.map((tableId) => <div
-        key={tableId}
-        className="table-list-item">
-        <Button variant="text" sx={{textTransform: 'none', padding: 0, minWidth: 0}} onClick={() => { dispatch(dfActions.setFocusedTable(tableId)) }}>
-            <Stack direction="row" sx={{fontSize: '12px'}} alignItems="center" gap={"2px"}>
-                <TableRowsIcon fontSize="inherit" />
-                <Typography sx={{fontSize: '12px'}} >
-                    {tableId} 
-                </Typography>
-            </Stack>
-        </Button>
-    </div>);
-
-    let tableCards = activeTableThread.map((tableId) => 
-        <Card 
-            key={tableId}
-            variant='outlined' sx={{padding: '2px 0 2px 0'}}>
-            <Button variant="text" sx={{textTransform: 'none', padding: 0, marginLeft: 1, minWidth: 0}} onClick={() => { dispatch(dfActions.setFocusedTable(tableId)) }}>
+    let tableList = activeTableThread.map((tableId) => {
+        let table = tables.find(t => t.id == tableId) as DictTable;
+        return <div
+                key={`${tableId}-table-list-item`}
+                className="table-list-item">
+                <Button variant="text" sx={{textTransform: 'none', padding: 0, minWidth: 0}} onClick={() => { dispatch(dfActions.setFocusedTable(tableId)) }}>
                 <Stack direction="row" sx={{fontSize: '12px'}} alignItems="center" gap={"2px"}>
-                    <TableRowsIcon fontSize="inherit" />
+                    {table.anchored ? <AnchorIcon fontSize="inherit" /> : <TableRowsIcon fontSize="inherit" />}
                     <Typography sx={{fontSize: '12px'}} >
-                        {tableId} 
+                        {table.displayId || tableId}
                     </Typography>
                 </Stack>
             </Button>
-        </Card>);
+        </div>
+    });
+
 
     let leafTable = tables.find(t => t.id == activeTableThread[activeTableThread.length - 1]) as DictTable;
-    let triggers =  getTriggers(leafTable, tables) //leafTable.derive?.triggers || [];
+    let triggers =  getTriggers(leafTable, tables)
+
     let instructionCards = triggers.map((trigger, i) => {
         let extractActiveFields = (t: Trigger) => {
             let encodingMap = (charts.find(c => c.id == t.chartRef) as Chart).encodingMap
@@ -444,31 +432,25 @@ export const EncodingShelfThread: FC<EncodingShelfThreadProps> = function ({ cha
         let fieldsIdentical = _.isEqual(previousActiveFields, currentActiveFields)
 
         return  <Box 
-                    key={trigger.tableId}
-                    sx={{padding: 0, display: 'flex'}}>
-                    {/* <SouthIcon sx={{fontSize: "inherit", margin: 'auto 4px'}} /> */}
-                    <Box sx={{minWidth: '1px', padding: '0px', width: '17px',  flex: 'none', display: 'flex', flexDirection: 'column'
-                              //borderLeft: '1px dashed darkgray',
-                            }}>
-                        <Box sx={{padding:0, width: '1px', margin:'auto', height: '100%',
-                                    backgroundImage: 'linear-gradient(180deg, darkgray, darkgray 75%, transparent 75%, transparent 100%)',
-                                    backgroundSize: '1px 6px, 3px 100%'}}></Box>
-                        {/* <Box sx={{marginLeft: "6px", marginTop: '-10px', marginBottom: '-4px'}}><PanoramaFishEyeIcon sx={{fontSize: 5}}/></Box>
-                        <Box sx={{padding:0, width: '1px', margin:'auto', height: '49%',
-                                               backgroundImage: 'linear-gradient(180deg, darkgray, darkgray 75%, transparent 75%, transparent 100%)',
-                            backgroundSize: '1px 6px, 3px 100%'}}></Box> */}
-                    </Box>
-                    <TriggerCard className="encoding-shelf-trigger-card" trigger={trigger} hideFields={fieldsIdentical} />
-                    {i == triggers.length - 1 && chart.intermediate == undefined ? 
-                        <Tooltip title={`reformulate: override ${chart.tableRef}`}>
-                            <IconButton color="warning" size="small"
-                                onClick={() => {
-                                    reFormulate(triggers[triggers.length - 1]);
-                                }}
-                            >{reformulateRunning ? <CircularProgress size={18} color="warning" /> : <ChangeCircleOutlinedIcon />}</IconButton>
-                        </Tooltip> 
-                        : ""}
-                </Box>;
+            key={`${trigger.tableId}-trigger-card`}
+            sx={{padding: 0, display: 'flex'}}>
+            <Box sx={{minWidth: '1px', padding: '0px', width: '17px',  flex: 'none', display: 'flex', flexDirection: 'column'
+                    }}>
+                <Box sx={{padding:0, width: '1px', margin:'auto', height: '100%',
+                            backgroundImage: 'linear-gradient(180deg, darkgray, darkgray 75%, transparent 75%, transparent 100%)',
+                            backgroundSize: '1px 6px, 3px 100%'}}></Box>
+            </Box>
+            <TriggerCard className="encoding-shelf-trigger-card" trigger={trigger} hideFields={fieldsIdentical} />
+            {i == triggers.length - 1 && chart.intermediate == undefined ? 
+                <Tooltip title={`reformulate: override ${chart.tableRef}`}>
+                    <IconButton color="warning" size="small"
+                        onClick={() => {
+                            reFormulate(triggers[triggers.length - 1]);
+                        }}
+                    >{reformulateRunning ? <CircularProgress size={18} color="warning" /> : <ChangeCircleOutlinedIcon />}</IconButton>
+                </Tooltip> 
+                : ""}
+        </Box>;
     })
     
     let spaceElement = "" //<Box sx={{padding: '4px 0px', background: 'aliceblue', margin: 'auto', width: '200px', height: '3px', paddingBottom: 0.5}}></Box>;
@@ -515,13 +497,6 @@ export const EncodingShelfThread: FC<EncodingShelfThreadProps> = function ({ cha
                                                     backgroundSize: '1px 6px, 3px 100%'}}></Box>
                         </Box>, ...instructionCards.slice(cutIndex+1, postInstructEndPoint)], 
                         tableList.slice(cutIndex + 1, postInstructEndPoint + 1), spaceElement)}
-                    {/* {w(Array(tableList.length - (cutIndex) - 1).fill(
-                        <Box sx={{padding: '2px 0 2px 0', display: 'flex', alignItems: "center"}}>
-                            <SouthIcon sx={{fontSize: "inherit", margin: 'auto 4px'}} />
-                        </Box>), 
-                        tableList.slice(cutIndex + 1), spaceElement)} */}
-                    {/* {w(tableList.slice(0, tableList.length - 1), instructionList.slice(0, instructionList.length - 1))}  */}
-                    {/* <Button sx={{minWidth: '24px'}}><RestartAlt /></Button> */}
                 </Box>
                 <Box>
                     {endChartCard}

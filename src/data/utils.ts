@@ -3,12 +3,13 @@
 
 import * as d3 from 'd3';
 import Column from './column';
+import * as XLSX from 'xlsx';
 
 import { DictTable } from '../components/ComponentType';
 import { CoerceType, TestType, Type } from './types';
 import { ColumnTable } from './table';
 
-export const loadDataWrapper = (title: string, text: string, fileType: string): DictTable | undefined => {
+export const loadTextDataWrapper = (title: string, text: string, fileType: string): DictTable | undefined => {
     
     let tableName = title;
     //let tableName = title.replace(/\.[^/.]+$/ , "");
@@ -17,9 +18,8 @@ export const loadDataWrapper = (title: string, text: string, fileType: string): 
     if (fileType == "text/csv" || fileType == "text/tab-separated-values") {
         table = createTableFromText(tableName, text);
     } else if (fileType == "application/json") {
-        table = createTableFromFromObjectArray(tableName, JSON.parse(text));
-    }
-
+        table = createTableFromFromObjectArray(tableName, JSON.parse(text), true);
+    } 
     return table;
 };
 
@@ -43,12 +43,43 @@ export const createTableFromText = (title: string, text: string): DictTable | un
     // Should check the data file as well for the ending
     const isTabSeparated = tabNum / lineNum >= 1;
 
-    const values = isTabSeparated ? d3.tsvParse(text) : d3.csvParse(text);
+    // Use d3.dsvFormat to create a custom parser that properly handles quoted fields
+    // This ensures commas inside quoted fields won't be treated as delimiters
+    const rows = isTabSeparated 
+        ? d3.tsvParseRows(text) 
+        : d3.dsvFormat(',').parseRows(text, (row, index) => {
+            // Process each row to ensure proper type handling
+            return row;
+          });
     
-    return createTableFromFromObjectArray(title, values);
+    // Handle duplicate column names by appending _1, _2, etc.
+    let colNames: string[] = [];
+    for (let i = 0; i < rows[0].length; i++) {
+        let col = rows[0][i];   
+        if (colNames.includes(col)) {
+            let k = 1;
+            while (colNames.includes(`${col}_${k}`)) {
+                k++;
+            }
+            colNames.push(`${col}_${k}`);
+        } else {
+            colNames.push(col);
+        }
+    }
+
+    let values = rows.slice(1);
+    let records = values.map(row => {
+        let record: any = {};
+        for (let i = 0; i < colNames.length; i++) {
+            record[colNames[i]] = row[i];
+        }
+        return record;
+    });
+    
+    return createTableFromFromObjectArray(title, records, true);
 };
 
-export const createTableFromFromObjectArray = (title: string, values: any[], derive?: any): DictTable => {
+export const createTableFromFromObjectArray = (title: string, values: any[], anchored: boolean, derive?: any): DictTable => {
     const len = values.length;
     let names: string[] = [];
     let cleanNames: string[] = [];
@@ -88,10 +119,12 @@ export const createTableFromFromObjectArray = (title: string, values: any[], der
 
     return  {
         id: title,
+        displayId: `${title}`,
         names: columnTable.names(),
         types: columnTable.names().map(name => (columnTable.column(name) as Column).type),
         rows: columnTable.objects(),
-        derive: derive
+        derive: derive,
+        anchored: anchored
     }
 };
 
@@ -145,20 +178,32 @@ export function tupleEqual(a: any[], b: any[]) {
     return true;
 }
 
-// export function arrayEqual(_arr1: any[], _arr2: any[]) {
-//     if (Array.isArray(_arr1) || !Array.isArray(_arr2) || _arr1.length !== _arr2.length) {
-//         return false;
-//     }
-    
-//     // .concat() to not mutate arguments
-//     const arr1 = _arr1.concat().sort();
-//     const arr2 = _arr2.concat().sort();
-    
-//     for (let i = 0; i < arr1.length; i++) {
-//         if (arr1[i] !== arr2[i]) {
-//             return false;
-//         }
-//     }
-    
-//     return true;
-// }
+export const loadBinaryDataWrapper = (title: string, arrayBuffer: ArrayBuffer): DictTable[] => {
+    try {
+        // Read the Excel file
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        
+        // Get all sheet names
+        const sheetNames = workbook.SheetNames;
+        
+        // Create tables for each sheet
+        const tables: DictTable[] = [];
+        
+        for (const sheetName of sheetNames) {
+            // Get the worksheet
+            const worksheet = workbook.Sheets[sheetName];
+            
+            // Convert the worksheet to JSON
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+            
+            // Create a table from the JSON data with sheet name included in the title
+            const sheetTable = createTableFromFromObjectArray(`${title}-${sheetName}`, jsonData, true);
+            tables.push(sheetTable);
+        }
+        
+        return tables;
+    } catch (error) {
+        console.error('Error processing Excel file:', error);
+        return [];
+    }
+};

@@ -20,9 +20,8 @@ import {
 
 import React from 'react';
 
-import { baseTableToExtTable, instantiateVegaTemplate } from '../app/utils';
+import { assembleVegaChart } from '../app/utils';
 import { Chart } from '../components/ComponentType';
-import { findBaseFields } from './ViewUtils';
 import { useSelector } from 'react-redux';
 import { DataFormulatorState } from '../app/dfSlice';
 
@@ -33,18 +32,6 @@ import { CustomReactTable } from './ReactTable';
 
 import DeleteIcon from '@mui/icons-material/Delete';
 import SaveIcon from '@mui/icons-material/Save';
-
-export const GroupHeader = styled('div')(({ theme }) => ({
-    position: 'sticky',
-    top: '-8px',
-    padding: '4px 4px',
-    color: "darkgray",
-    fontSize: "12px",
-}));
-  
-export const GroupItems = styled('ul')({
-    padding: 0,
-});
 
 export interface DerivedDataDialogProps {
     chart: Chart,
@@ -63,7 +50,6 @@ export const DerivedDataDialog: FC<DerivedDataDialogProps> = function DerivedDat
 
     let [selectionIdx, setSelectionIdx] = React.useState(0);
     const conceptShelfItems = useSelector((state: DataFormulatorState) => state.conceptShelfItems);
-    let derivedFields = conceptShelfItems.filter(f => f.source == "derived");
 
     let body = 
         <Box sx={{display: "flex", overflowX: "auto", flexDirection: direction == "horizontal" ? "column" : "row", 
@@ -71,13 +57,9 @@ export const DerivedDataDialog: FC<DerivedDataDialogProps> = function DerivedDat
             
             {candidateTables.map((table, idx) => {
                 let code = table.derive?.code || "";
-                let toDeriveFields = derivedFields.filter(f => f.name != "").filter(f => findBaseFields(f, conceptShelfItems).every(f2 => table.names.includes(f2.name)))
-                let extTable = baseTableToExtTable(JSON.parse(JSON.stringify(table.rows)), toDeriveFields, conceptShelfItems);
+                let extTable = structuredClone(table.rows);
             
-                let vgSpec: any = instantiateVegaTemplate(chart.chartType, chart.encodingMap, conceptShelfItems, extTable)[0];
-            
-            
-                let assembledChart = {...vgSpec, data: {values: JSON.parse(JSON.stringify(extTable))}};
+                let assembledChart: any = assembleVegaChart(chart.chartType, chart.encodingMap, conceptShelfItems, extTable);
                 assembledChart["background"] = "transparent";
                 // chart["autosize"] = {
                 //     "type": "fit",
