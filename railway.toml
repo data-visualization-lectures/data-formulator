@@ -2,7 +2,7 @@
 builder = "RAILPACK"
 
 [deploy]
-startCommand = "gunicorn data_formulator.app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
+startCommand = "PYTHONPATH=/app/py-src gunicorn data_formulator.app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
