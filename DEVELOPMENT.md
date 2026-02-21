@@ -1,110 +1,111 @@
-# Set up a local Data Formulator development environment
-How to set up your local machine.
+# Data Formulator ローカル開発環境のセットアップ
 
-## Prerequisites
+ローカルマシンのセットアップ手順です。
+
+## 前提条件
 * Python > 3.11
 * Node.js
 * Yarn
 
-## Backend (Python)
+## バックエンド（Python）
 
-- **Create a Virtual Environment**  
+- **仮想環境の作成**
     ```bash
     python -m venv venv
     .\venv\Scripts\activate
     ```
 
-- **Install Dependencies**  
+- **依存関係のインストール**
     ```bash
     pip install -r requirements.txt
     ```
-- **Configure environment variable (optional)s**
-    - copy `api-keys.env.example` to `api-keys.env` and add your API keys.
-        - required fields for different providers are different, please refer to the [LiteLLM setup](https://docs.litellm.ai/docs#litellm-python-sdk) guide for more details.
-            - currently only endpoint, model, api_key, api_base, api_version are supported.
-        - this helps data formulator to automatically load the API keys when you run the app, so you don't need to set the API keys in the app UI.
 
-    - set `.env` to configure server properties:
-        - copy `.env.template` to `.env`
-        - configure settings as needed:
-            - DISABLE_DISPLAY_KEYS: if true, API keys will not be shown in the frontend
-            - EXEC_PYTHON_IN_SUBPROCESS: if true, Python code runs in a subprocess (safer but slower), you may consider setting it true when you are hosting Data Formulator for others
-            - LOCAL_DB_DIR: directory to store the local database (uses temp directory if not set)
-            - External database settings (when USE_EXTERNAL_DB=true):
-                - DB_NAME: name to refer to this database connection
-                - DB_TYPE: mysql or postgresql (currently only these two are supported)
-                - DB_HOST: database host address
-                - DB_PORT: database port
-                - DB_DATABASE: database name
-                - DB_USER: database username
-                - DB_PASSWORD: database password
+- **環境変数の設定（任意）**
+    - `api-keys.env.example` を `api-keys.env` にコピーして API キーを追加する。
+        - プロバイダーによって必要なフィールドが異なるため、[LiteLLM セットアップガイド](https://docs.litellm.ai/docs#litellm-python-sdk) を参照してください。
+            - 現在サポートされているフィールドは endpoint, model, api_key, api_base, api_version のみです。
+        - これにより、アプリ起動時に API キーが自動的に読み込まれ、UI での手動入力が不要になります。
 
+    - `.env` でサーバーのプロパティを設定する:
+        - `.env.template` を `.env` にコピーする
+        - 必要に応じて以下の設定を行う:
+            - DISABLE_DISPLAY_KEYS: true にすると、API キーがフロントエンドに表示されなくなる
+            - EXEC_PYTHON_IN_SUBPROCESS: true にすると、Python コードがサブプロセスで実行される（より安全だが低速）。他のユーザー向けにホストする場合に推奨
+            - LOCAL_DB_DIR: ローカルデータベースの保存ディレクトリ（未設定の場合は一時ディレクトリを使用）
+            - 外部データベース設定（USE_EXTERNAL_DB=true の場合）:
+                - DB_NAME: このデータベース接続の参照名
+                - DB_TYPE: mysql または postgresql（現在この2つのみサポート）
+                - DB_HOST: データベースのホストアドレス
+                - DB_PORT: データベースのポート
+                - DB_DATABASE: データベース名
+                - DB_USER: データベースのユーザー名
+                - DB_PASSWORD: データベースのパスワード
 
-- **Run the app**
+- **アプリの起動**
     - **Windows**
     ```bash
     .\local_server.bat
     ```
 
-    - **Unix-based**
+    - **Unix 系**
     ```bash
     ./local_server.sh
     ```
 
-## Frontend (TypeScript)
+## フロントエンド（TypeScript）
 
-- **Install NPM packages**  
-    
+- **NPM パッケージのインストール**
+
     ```bash
     yarn
     ```
 
-- **Development mode**
+- **開発モード**
 
-    Run the front-end in development mode using, allowing real-time edits and previews:
+    リアルタイムの編集とプレビューを可能にする開発モードでフロントエンドを起動する:
     ```bash
     yarn start
     ```
-    Open [http://localhost:5173](http://localhost:5173) to view it in the browser.
-    The page will reload if you make edits. You will also see any lint errors in the console.
+    ブラウザで [http://localhost:5173](http://localhost:5173) を開いてください。
+    編集するとページが自動的にリロードされます。コンソールでリントエラーも確認できます。
 
-## Build for Production
+## 本番ビルド
 
-- **Build the frontend and then the backend**
+- **フロントエンドとバックエンドのビルド**
 
-    Compile the TypeScript files and bundle the project:
+    TypeScript ファイルをコンパイルしてプロジェクトをバンドルする:
     ```bash
     yarn build
     ```
-    This builds the app for production to the `py-src/data_formulator/dist` folder.  
+    `py-src/data_formulator/dist` フォルダに本番用のビルドが生成されます。
 
-    Then, build python package:
+    次に Python パッケージをビルドする:
 
     ```bash
     pip install build
     python -m build
     ```
-    This will create a python wheel in the `dist/` folder. The name would be `data_formulator-<version>-py3-none-any.whl`
+    `dist/` フォルダに Python の wheel ファイルが作成されます。ファイル名は `data_formulator-<version>-py3-none-any.whl` になります。
 
-- **Test the artifact**
+- **成果物のテスト**
 
-    You can then install the build result wheel (testing in a virtual environment is recommended):
+    ビルドされた wheel ファイルをインストールする（仮想環境でのテストを推奨）:
     ```bash
-    # replace <version> with the actual build version. 
-    pip install dist/data_formulator-<version>-py3-none-any.whl 
+    # <version> は実際のビルドバージョンに置き換えてください
+    pip install dist/data_formulator-<version>-py3-none-any.whl
     ```
 
-    Once installed, you can run Data Formulator with:
+    インストール後、以下のコマンドで Data Formulator を起動できます:
     ```bash
     data_formulator
     ```
-    or 
+    または
     ```bash
     python -m data_formulator
     ```
 
-    Open [http://localhost:5000](http://localhost:5000) to view it in the browser.
+    ブラウザで [http://localhost:5000](http://localhost:5000) を開いてください。
 
+## 使い方
 
-## Usage
-See the [Usage section on the README.md page](README.md#usage).
+[README.md の使い方セクション](README.md#usage) を参照してください。

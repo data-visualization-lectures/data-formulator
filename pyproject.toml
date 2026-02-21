@@ -35,7 +35,9 @@ dependencies = [
     "python-dotenv",  
     "vega_datasets",
     "litellm",
-    "duckdb"
+    "duckdb",
+    "PyJWT>=2.8.0",
+    "gunicorn>=21.0.0"
 ]
 
 [project.urls]
