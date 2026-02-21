@@ -66,8 +66,15 @@ app.config['CLI_ARGS'] = {
 }
 
 # CORS setup
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5000").split(",")
-CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
+# When ALLOWED_ORIGINS is not set (e.g., Vercel+Railway deployment),
+# allow all origins so the frontend can call the API cross-origin.
+# When ALLOWED_ORIGINS is explicitly set, restrict to those origins and
+# enable credentials (cookies) for session support.
+_ALLOWED_ORIGINS_ENV = os.getenv("ALLOWED_ORIGINS", "")
+if _ALLOWED_ORIGINS_ENV:
+    CORS(app, origins=_ALLOWED_ORIGINS_ENV.split(","), supports_credentials=True)
+else:
+    CORS(app, origins="*")
 
 # Supabase JWT auth
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")

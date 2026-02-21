@@ -758,11 +758,11 @@ export const dataFormulatorSlice = createSlice({
             let defaultModels = action.payload;
 
             state.models = [
-                ...defaultModels, 
+                ...defaultModels,
                 ...state.models.filter(e => !defaultModels.map((m: ModelConfig) => m.endpoint).includes(e.endpoint))
             ];
-            
-            state.testedModels = [ 
+
+            state.testedModels = [
                 ...defaultModels.map((m: ModelConfig) => {return {id: m.id, status: 'ok'}}) ,
                 ...state.testedModels.filter(t => !defaultModels.map((m: ModelConfig) => m.id).includes(t.id))
             ]
@@ -770,9 +770,9 @@ export const dataFormulatorSlice = createSlice({
             if (state.selectedModelId == undefined && defaultModels.length > 0) {
                 state.selectedModelId = defaultModels[0].id;
             }
-
-            // console.log("load model complete");
-            // console.log("state.models", state.models);
+        })
+        .addCase(fetchAvailableModels.rejected, (state, action) => {
+            console.error("[fetchAvailableModels] Failed to load models from server:", action.error?.message ?? action.error);
         })
         .addCase(fetchCodeExpl.fulfilled, (state, action) => {
             let codeExpl = action.payload;

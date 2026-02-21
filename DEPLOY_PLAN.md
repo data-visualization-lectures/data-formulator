@@ -388,12 +388,43 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 > ⚠️ `VITE_API_BASE_URL` は Vercel でビルド時に埋め込まれる。
 > 値を変えた後は Vercel で **Redeploy** が必要。
 
-**Railway 環境変数（追加）:**
-Vercel からのクロスオリジンリクエストを許可するため：
+---
 
-| 変数名 | 値の例 | 説明 |
-|--------|--------|------|
-| `ALLOWED_ORIGINS` | `https://data-formulator.dataviz.jp` | CORS 許可オリジン。Railway の ALLOWED_ORIGINS に Vercel のドメインを追加 |
+#### ❌ 問題5: Railway の CORS デフォルト設定が Vercel からのリクエストをブロック（根本原因）
+
+**症状:** `VITE_API_BASE_URL` を設定し、API 呼び出しが Railway に直接向くようになっても、
+「Select Model」ボタンが消えず、モデルが自動登録されない。
+
+**原因:** `app.py` の CORS 設定のデフォルト値が `http://localhost:5173,http://localhost:5000` のみ
+を許可していた。Vercel のドメイン（例: `https://xxx.vercel.app`）は許可リストに入っておらず、
+ブラウザが CORS エラーでリクエストをブロックする。
+`fetchAvailableModels` に `.rejected` ハンドラーがなかったため、**エラーが完全にサイレント** だった。
+
+```
+ブラウザ（Vercel）→ POST https://xxx.railway.app/api/agent/check-available-models
+                    ← Access-Control-Allow-Origin: http://localhost:5173 （Vercel ドメインは含まれない）
+ブラウザ: CORS エラー → fetch が例外をスロー → Redux が rejected を発行 → ハンドラーなし → 無視
+```
+
+**解決策:** `app.py` の CORS 設定を変更。`ALLOWED_ORIGINS` 環境変数が未設定の場合は `*`（全許可）を使用。
+
+```python
+_ALLOWED_ORIGINS_ENV = os.getenv("ALLOWED_ORIGINS", "")
+if _ALLOWED_ORIGINS_ENV:
+    CORS(app, origins=_ALLOWED_ORIGINS_ENV.split(","), supports_credentials=True)
+else:
+    CORS(app, origins="*")
+```
+
+> **なぜ `*` で問題ないか:**
+> - Railway のこのアプリは、ユーザー自身が用意した LLM API キーを環境変数で登録して使う設計
+> - Supabase JWT による認証は `Authorization: Bearer` ヘッダーで行われる（クッキー不要）
+> - クッキーを使う認証なら `supports_credentials=True` と特定オリジンが必要だが、
+>   このアプリはその組み合わせで運用する場合だけ `ALLOWED_ORIGINS` を設定すればよい
+
+**dfSlice.tsx の改善（同時実施）:**
+`fetchAvailableModels.rejected` ハンドラーを追加し、エラーをコンソールに記録。
+今後 CORS やネットワーク障害が起きた場合に、ブラウザの開発者ツールで原因を特定できる。
 
 ---
 
@@ -402,10 +433,15 @@ Vercel からのクロスオリジンリクエストを許可するため：
 | 変数名 | 値の例 | 説明 |
 |--------|--------|------|
 | `SUPABASE_JWT_SECRET` | Supabase > Settings > API > JWT Secret | 認証用。未設定だとローカル開発モード（認証スキップ） |
-| `ALLOWED_ORIGINS` | `https://data-formulator.dataviz.jp` | CORS 許可オリジン |
 | `OPENAI_ENABLED` | `true` | OpenAI を有効化（**必須**、これがないとスキップされる） |
 | `OPENAI_API_KEY` | `sk-xxxx` | OpenAI API キー |
 | `OPENAI_MODELS` | `gpt-4o,gpt-4o-mini` | 使用するモデル名をカンマ区切りで指定（**必須**） |
+
+**Railway 環境変数（オプション）:**
+
+| 変数名 | 値の例 | 説明 |
+|--------|--------|------|
+| `ALLOWED_ORIGINS` | `https://data-formulator.dataviz.jp` | CORS 許可オリジンを絞り込む場合のみ設定。**未設定なら全オリジン許可（`*`）** |
 
 ---
 
