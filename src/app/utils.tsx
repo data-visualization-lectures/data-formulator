@@ -55,7 +55,14 @@ export function assignAppConfig(config: AppConfig) {
     console.log('appConfig', appConfig);
 }
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+function resolveApiBase(raw: string): string {
+    if (!raw) return "";
+    const trimmed = raw.replace(/\/$/, "");
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+    // https:// が省略されていた場合に自動補完する
+    return `https://${trimmed}`;
+}
+const API_BASE = resolveApiBase(import.meta.env.VITE_API_BASE_URL ?? "");
 
 export function getUrls() {
     return {
