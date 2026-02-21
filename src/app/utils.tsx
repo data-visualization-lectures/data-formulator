@@ -36,9 +36,19 @@ export async function getSupabaseToken(): Promise<string | null> {
     }
 }
 
+// localStorage key for passing the session_id in cross-origin mode (Vercel → Railway).
+// Flask session cookies are unavailable cross-origin, so the frontend stores the
+// session_id here and sends it as X-Session-Id header with every API request.
+const SESSION_ID_STORAGE_KEY = 'df_session_id';
+
+export function storeSessionId(sessionId: string) {
+    localStorage.setItem(SESSION_ID_STORAGE_KEY, sessionId);
+}
+
 /**
  * Authorization ヘッダー付きの fetch ラッパー。
  * datavizSupabase が未初期化の場合はヘッダーなしで通常 fetch する。
+ * クロスオリジン構成（Vercel + Railway）では X-Session-Id ヘッダーも付加する。
  */
 export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
     const token = await getSupabaseToken();
@@ -46,6 +56,9 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
         ...(options.headers as Record<string, string> ?? {}),
     };
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    // Include session_id so Railway can identify the session even without cookies.
+    const sessionId = localStorage.getItem(SESSION_ID_STORAGE_KEY);
+    if (sessionId) headers['X-Session-Id'] = sessionId;
     return fetch(url, { ...options, headers });
 }
 

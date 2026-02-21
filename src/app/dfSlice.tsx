@@ -9,7 +9,7 @@ import { Message } from '../views/MessageSnackbar';
 import { getChartTemplate, getChartChannels } from "../components/ChartTemplates"
 import { getDataTable } from '../views/VisualizationView';
 import { findBaseFields } from '../views/ViewUtils';
-import { adaptChart, getTriggers, getUrls, authenticatedFetch } from './utils';
+import { adaptChart, getTriggers, getUrls, authenticatedFetch, storeSessionId } from './utils';
 import { Type } from '../data/types';
 import { TableChallenges } from '../views/TableSelectionView';
 import { inferTypeFromValueArray } from '../data/utils';
@@ -237,6 +237,11 @@ export const getSessionId = createAsyncThunk(
         let state = getState() as DataFormulatorState;
         let sessionId = state.sessionId;
 
+        // Pre-populate localStorage so that authenticatedFetch can include
+        // X-Session-Id in any requests that fire concurrently with this one
+        // (e.g. fetchAvailableModels and getSessionId are dispatched together).
+        if (sessionId) storeSessionId(sessionId);
+
         const response = await fetch(`${getUrls().GET_SESSION_ID}`, {
             method: 'POST',
             headers: {
@@ -246,7 +251,10 @@ export const getSessionId = createAsyncThunk(
                 session_id: sessionId,
             }),
         });
-        return response.json();
+        const data = await response.json();
+        // Store the server-confirmed session_id for all subsequent requests.
+        if (data?.session_id) storeSessionId(data.session_id);
+        return data;
     }
 );
 

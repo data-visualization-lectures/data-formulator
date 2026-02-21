@@ -33,6 +33,7 @@ from data_formulator.agents.agent_code_explanation import CodeExplanationAgent
 from data_formulator.agents.client_utils import Client
 
 from data_formulator.db_manager import db_manager
+from data_formulator.session_utils import resolve_session_id
 
 # Configure root logger for general application logging
 logging.basicConfig(
@@ -169,7 +170,7 @@ def process_data_on_load_request():
 
         logger.info(f" model: {content['model']}")
 
-        conn = db_manager.get_connection(session['session_id'])
+        conn = db_manager.get_connection(resolve_session_id())
         agent = DataLoadAgent(client=client, conn=conn)
         
         candidates = agent.run(content["input_data"])
@@ -320,7 +321,7 @@ def derive_data():
         if len(new_fields) == 0:
             mode = "recommendation"
 
-        conn = db_manager.get_connection(session['session_id']) if language == "sql" else None
+        conn = db_manager.get_connection(resolve_session_id()) if language == "sql" else None
 
         if mode == "recommendation":
             # now it's in recommendation mode
@@ -382,7 +383,7 @@ def refine_data():
         logger.info(output_fields)
         logger.info(new_instruction)
 
-        conn = db_manager.get_connection(session['session_id']) if language == "sql" else None
+        conn = db_manager.get_connection(resolve_session_id()) if language == "sql" else None
 
         # always resort to the data transform agent       
         agent = SQLDataTransformationAgent(client=client, conn=conn) if language == "sql" else PythonDataTransformationAgent(client=client, exec_python_in_subprocess=current_app.config['CLI_ARGS']['exec_python_in_subprocess'])

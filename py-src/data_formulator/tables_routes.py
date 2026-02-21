@@ -16,6 +16,7 @@ import string
 from pathlib import Path
 
 from data_formulator.db_manager import db_manager
+from data_formulator.session_utils import resolve_session_id
 
 import re
 from typing import Tuple
@@ -40,7 +41,7 @@ def list_tables():
     """List all tables in the current session"""
     try:
         result = []
-        with db_manager.connection(session['session_id']) as db:
+        with db_manager.connection(resolve_session_id()) as db:
             table_metadata_list = db.execute("""
                 SELECT database_name, schema_name, table_name, schema_name==current_schema() as is_current_schema, 'table' as object_type 
                 FROM duckdb_tables() 
@@ -171,7 +172,7 @@ def sample_table():
         
         total_row_count = 0
         # Validate field names against table columns to prevent SQL injection
-        with db_manager.connection(session['session_id']) as db:
+        with db_manager.connection(resolve_session_id()) as db:
             # Get valid column names
             columns = [col[0] for col in db.execute(f"DESCRIBE {table_id}").fetchall()]
 
@@ -238,7 +239,7 @@ def sample_table():
 def get_table_data():
     """Get data from a specific table"""
     try:
-        with db_manager.connection(session['session_id']) as db:
+        with db_manager.connection(resolve_session_id()) as db:
 
             table_name = request.args.get('table_name')
             # Get pagination parameters
@@ -319,7 +320,7 @@ def create_table():
         if not sanitized_table_name:
             return jsonify({"status": "error", "message": "Invalid table name"}), 400
             
-        with db_manager.connection(session['session_id']) as db:
+        with db_manager.connection(resolve_session_id()) as db:
             # Check if table exists and generate unique name if needed
             base_name = sanitized_table_name
             counter = 1
@@ -374,7 +375,7 @@ def drop_table():
         if not table_name:
             return jsonify({"status": "error", "message": "No table name provided"}), 400
             
-        with db_manager.connection(session['session_id']) as db:
+        with db_manager.connection(resolve_session_id()) as db:
             # First check if it exists as a view
             view_exists = db.execute(f"SELECT view_name FROM duckdb_views() WHERE view_name = '{table_name}'").fetchone() is not None
             if view_exists:
@@ -417,10 +418,11 @@ def upload_db_file():
             return jsonify({"status": "error", "message": "Invalid file format. Only .db files are supported"}), 400
 
         # Get the session ID
-        if 'session_id' not in session:
+        session_id = resolve_session_id()
+        if not session_id:
             return jsonify({"status": "error", "message": "No session ID found"}), 400
         
-        session_id = session['session_id']
+        session_id = resolve_session_id()
         
         # Create temp directory if it doesn't exist
         temp_dir = os.path.join(tempfile.gettempdir())
@@ -519,10 +521,11 @@ def attach_external_db():
         suffix = ''.join(random.choices(string.ascii_letters + string.digits, k=2))
         db_name = f"{db_type.lower()}_{suffix}"
 
-        if 'session_id' not in session:
+        session_id = resolve_session_id()
+        if not session_id:
             return jsonify({"status": "error", "message": "No session ID found"}), 400
         
-        with db_manager.connection(session['session_id']) as conn:
+        with db_manager.connection(resolve_session_id()) as conn:
             # Create secret using parameterized query
 
             # Install and load the extension
@@ -576,14 +579,7 @@ def attach_external_db():
 def download_db_file():
     """Download the db file for a session"""
     try:
-        # Check if session exists
-        if 'session_id' not in session:
-            return jsonify({
-                "status": "error",
-                "message": "No session ID found"
-            }), 400
-        
-        session_id = session['session_id']
+        session_id = resolve_session_id()
         
         # Get the database file path from db_manager
         if session_id not in db_manager._db_files:
@@ -626,13 +622,7 @@ def download_db_file():
 def reset_db_file():
     """Reset the db file for a session"""
     try:
-        if 'session_id' not in session:
-            return jsonify({
-                "status": "error",
-                "message": "No session ID found"
-            }), 400
-            
-        session_id = session['session_id']
+        session_id = resolve_session_id()
 
         logger.info(f"session_id: {session_id}")
         
@@ -682,7 +672,7 @@ def query_table():
         if not query:
             return jsonify({"status": "error", "message": "No query provided"}), 400
         
-        with db_manager.connection(session['session_id']) as db:
+        with db_manager.connection(resolve_session_id()) as db:
             result = db.execute(query).fetch_df()
         
             return jsonify({
@@ -711,7 +701,7 @@ def analyze_table():
         if not table_name:
             return jsonify({"status": "error", "message": "No table name provided"}), 400
         
-        with db_manager.connection(session['session_id']) as db:
+        with db_manager.connection(resolve_session_id()) as db:
         
             # Get column information
             columns = db.execute(f"DESCRIBE {table_name}").fetchall()
