@@ -97,20 +97,7 @@ def check_available_models():
                 "api_base": api_base,
                 "api_version": api_version
             }
-            
-            try:
-                client = get_client(model_config)
-                response = client.get_completion(
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": "Respond 'I can hear you.' if you can hear me."},
-                    ]
-                )
-                
-                if "I can hear you." in response.choices[0].message.content:
-                    results.append(model_config)
-            except Exception as e:
-                print(f"Error testing {provider} model {model}: {e}")
+            results.append(model_config)
                 
     return json.dumps(results)
 
