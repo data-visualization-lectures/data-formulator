@@ -15,4 +15,4 @@ PyJWT>=2.8.0
 gunicorn>=21.0.0
 litellm
 duckdb
--e . #also need to install data formulator itself
+. #also need to install data formulator itself
