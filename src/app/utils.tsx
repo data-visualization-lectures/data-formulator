@@ -55,44 +55,46 @@ export function assignAppConfig(config: AppConfig) {
     console.log('appConfig', appConfig);
 }
 
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+
 export function getUrls() {
     return {
-        GET_SESSION_ID: `/api/get-session-id`,
-        APP_CONFIG: `/api/app-config`,
-        AUTH_INFO_PREFIX: `/api/.auth/`,
+        GET_SESSION_ID: `${API_BASE}/api/get-session-id`,
+        APP_CONFIG: `${API_BASE}/api/app-config`,
+        AUTH_INFO_PREFIX: `${API_BASE}/api/.auth/`,
 
-        VEGA_DATASET_LIST: `/api/vega-datasets`,
-        VEGA_DATASET_REQUEST_PREFIX: `/api/vega-dataset/`,
+        VEGA_DATASET_LIST: `${API_BASE}/api/vega-datasets`,
+        VEGA_DATASET_REQUEST_PREFIX: `${API_BASE}/api/vega-dataset/`,
 
         // these functions involves ai agents
-        CHECK_AVAILABLE_MODELS: `/api/agent/check-available-models`,
-        TEST_MODEL: `/api/agent/test-model`,
+        CHECK_AVAILABLE_MODELS: `${API_BASE}/api/agent/check-available-models`,
+        TEST_MODEL: `${API_BASE}/api/agent/test-model`,
 
-        DERIVE_CONCEPT_URL: `/api/agent/derive-concept-request`,
-        DERIVE_PY_CONCEPT: `/api/agent/derive-py-concept`,
+        DERIVE_CONCEPT_URL: `${API_BASE}/api/agent/derive-concept-request`,
+        DERIVE_PY_CONCEPT: `${API_BASE}/api/agent/derive-py-concept`,
 
-        SORT_DATA_URL: `/api/agent/sort-data`,
-        CLEAN_DATA_URL: `/api/agent/clean-data`,
-        
-        CODE_EXPL_URL: `/api/agent/code-expl`,
-        SERVER_PROCESS_DATA_ON_LOAD: `/api/agent/process-data-on-load`,
+        SORT_DATA_URL: `${API_BASE}/api/agent/sort-data`,
+        CLEAN_DATA_URL: `${API_BASE}/api/agent/clean-data`,
 
-        DERIVE_DATA: `/api/agent/derive-data`,
-        REFINE_DATA: `/api/agent/refine-data`,
+        CODE_EXPL_URL: `${API_BASE}/api/agent/code-expl`,
+        SERVER_PROCESS_DATA_ON_LOAD: `${API_BASE}/api/agent/process-data-on-load`,
+
+        DERIVE_DATA: `${API_BASE}/api/agent/derive-data`,
+        REFINE_DATA: `${API_BASE}/api/agent/refine-data`,
 
         // these functions involves database
-        UPLOAD_DB_FILE: `/api/tables/upload-db-file`,
-        DOWNLOAD_DB_FILE: `/api/tables/download-db-file`,
-        RESET_DB_FILE: `/api/tables/reset-db-file`,
-        ATTACH_EXTERNAL_DB: `/api/tables/attach-external-db`,
+        UPLOAD_DB_FILE: `${API_BASE}/api/tables/upload-db-file`,
+        DOWNLOAD_DB_FILE: `${API_BASE}/api/tables/download-db-file`,
+        RESET_DB_FILE: `${API_BASE}/api/tables/reset-db-file`,
+        ATTACH_EXTERNAL_DB: `${API_BASE}/api/tables/attach-external-db`,
 
-        LIST_TABLES: `/api/tables/list-tables`,
-        TABLE_DATA: `/api/tables/get-table`,
-        CREATE_TABLE: `/api/tables/create-table`,
-        DELETE_TABLE: `/api/tables/delete-table`,
-        GET_COLUMN_STATS: `/api/tables/analyze`,
-        QUERY_TABLE: `/api/tables/query`,
-        SAMPLE_TABLE: `/api/tables/sample-table`,
+        LIST_TABLES: `${API_BASE}/api/tables/list-tables`,
+        TABLE_DATA: `${API_BASE}/api/tables/get-table`,
+        CREATE_TABLE: `${API_BASE}/api/tables/create-table`,
+        DELETE_TABLE: `${API_BASE}/api/tables/delete-table`,
+        GET_COLUMN_STATS: `${API_BASE}/api/tables/analyze`,
+        QUERY_TABLE: `${API_BASE}/api/tables/query`,
+        SAMPLE_TABLE: `${API_BASE}/api/tables/sample-table`,
     };
 }
 

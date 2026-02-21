@@ -355,6 +355,48 @@ startCommand = "PYTHONPATH=/app/py-src gunicorn data_formulator.app:app --bind 0
 
 ---
 
+#### ❌ 問題4: Vercel の SPA リライトが `/api/*` を横取りしてモデルが自動登録されない
+
+**症状:** 環境変数を3つ設定しても「Select Model」ダイアログにモデルが表示されず、
+毎回手動で API キー・モデルを入力しないと先に進めない。
+
+**原因:** `vercel.json` のリライトルール `"source": "/(.*)"` が `/api/*` を含む
+すべてのパスを `index.html` に転送する。
+フロントエンド（Vercel）が `/api/agent/check-available-models` を呼び出すと、
+Vercel が HTML を返すため `response.json()` がエラーになり、モデルが登録されない。
+
+```
+ブラウザ → GET /api/agent/check-available-models → Vercel → index.html（HTML！）
+                                                           ↑ JSON ではないのでパース失敗
+```
+
+**解決策:** `src/app/utils.tsx` の `getUrls()` が全 URL に `VITE_API_BASE_URL` を
+プレフィックスとして付加するよう変更し、API 呼び出しを Railway に直接向ける。
+
+```typescript
+// VITE_API_BASE_URL が未設定なら "" → 相対 URL（Railway 単体デプロイ時）
+// VITE_API_BASE_URL を設定すれば絶対 URL（Vercel + Railway 分離デプロイ時）
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+```
+
+**Vercel 環境変数（追加）:**
+
+| 変数名 | 値の例 | 説明 |
+|--------|--------|------|
+| `VITE_API_BASE_URL` | `https://xxx.railway.app` | Railway バックエンドの URL。**これを設定するだけでモデルが自動登録される** |
+
+> ⚠️ `VITE_API_BASE_URL` は Vercel でビルド時に埋め込まれる。
+> 値を変えた後は Vercel で **Redeploy** が必要。
+
+**Railway 環境変数（追加）:**
+Vercel からのクロスオリジンリクエストを許可するため：
+
+| 変数名 | 値の例 | 説明 |
+|--------|--------|------|
+| `ALLOWED_ORIGINS` | `https://data-formulator.dataviz.jp` | CORS 許可オリジン。Railway の ALLOWED_ORIGINS に Vercel のドメインを追加 |
+
+---
+
 **Railway 環境変数（必須）:**
 
 | 変数名 | 値の例 | 説明 |
