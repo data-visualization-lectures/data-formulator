@@ -4,11 +4,18 @@
 @import '@fontsource/roboto/700.css';
 
 html,
-body,
-#root {
+body {
     height: 100%;
     margin: 0;
     /* transform: translateZ(0); */
+    overflow: hidden;
+}
+
+#root {
+    /* dataviz-header (48px fixed) の下からアプリを開始 */
+    position: relative;
+    height: calc(100% - 48px);
+    margin-top: 48px;
     overflow: hidden;
 }
 

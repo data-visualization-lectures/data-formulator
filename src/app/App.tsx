@@ -802,7 +802,7 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
     let app =
         <Box sx={{
             position: 'absolute',
-            top: 48,  // dataviz-header (48px fixed) の下から開始
+            top: 0,
             left: 0,
             right: 0,
             bottom: 0,
