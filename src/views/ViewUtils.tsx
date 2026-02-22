@@ -17,7 +17,7 @@ import { DictTable } from '../components/ComponentType';
 // from a list of potential tables, extract domain of a given basic or custom fields
 export const getDomains = (field: FieldItem, tables: DictTable[]) : any[][] => {
     
-    let domains = tables.filter(t => Object.keys(t.rows[0]).includes(field.name))
+    let domains = tables.filter(t => t.rows.length > 0 && Object.keys(t.rows[0]).includes(field.name))
             .map(t => [...new Set(t.rows.map(row => row[field.name]))])
     
     domains = domains.filter((d, i) =>  {
