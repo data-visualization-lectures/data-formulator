@@ -16,6 +16,7 @@ import logging
 
 import json
 import html
+import hashlib
 
 from data_formulator.agents.agent_concept_derive import ConceptDeriveAgent
 from data_formulator.agents.agent_py_concept_derive import PyConceptDeriveAgent
@@ -90,13 +91,15 @@ def check_available_models():
             if not model:
                 continue
 
+            # API キーをハッシュ化してIDに使用（キー自体はフロントエンドに送らない）
+            key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:8] if api_key else ""
             model_config = {
-                "id": f"{provider}-{model}-{api_key}-{api_base}-{api_version}",
+                "id": f"{provider}-{model}-{key_hash}-{api_base}-{api_version}",
                 "endpoint": provider,
                 "model": model,
-                "api_key": api_key,
                 "api_base": api_base,
                 "api_version": api_version
+                # api_key はフロントエンドに返さない（バックエンドが環境変数から直接参照）
             }
             results.append(model_config)
                 
