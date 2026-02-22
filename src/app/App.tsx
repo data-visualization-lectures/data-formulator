@@ -801,8 +801,8 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
 
     let app =
         <Box sx={{
-            position: 'absolute',
-            top: 0,
+            position: 'fixed',
+            top: 48,
             left: 0,
             right: 0,
             bottom: 0,
