@@ -3,24 +3,18 @@
 @import '@fontsource/roboto/500.css';
 @import '@fontsource/roboto/700.css';
 
-html {
-    height: 100%;
-    margin: 0;
-    overflow: hidden;
-}
-
+html,
 body {
     height: 100%;
     margin: 0;
-    box-sizing: border-box; /* padding-top を height に含める */
     /* transform: translateZ(0); */
     overflow: hidden;
 }
 
 #root {
-    /* body の padding-top (48px) で押し下げられた位置を基準にする */
     position: relative;
-    height: 100%;
+    height: calc(100% - 48px);
+    padding-top: 48px;
     overflow: hidden;
 }
 
