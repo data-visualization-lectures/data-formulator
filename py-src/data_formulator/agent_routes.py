@@ -305,65 +305,73 @@ def derive_data():
 
     if request.is_json:
         logger.info("# request data: ")
-        content = request.get_json()        
+        content = request.get_json()
         token = content["token"]
 
-        client = get_client(content['model'])
+        try:
+            client = get_client(content['model'])
 
-        # each table is a dict with {"name": xxx, "rows": [...]}
-        input_tables = content["input_tables"]
-        new_fields = content["new_fields"]
-        instruction = content["extra_prompt"]
-        language = content.get("language", "python") # whether to use sql or python, default to python
-        
-        max_repair_attempts = content["max_repair_attempts"] if "max_repair_attempts" in content else 1
+            # each table is a dict with {"name": xxx, "rows": [...]}
+            input_tables = content["input_tables"]
+            new_fields = content["new_fields"]
+            instruction = content["extra_prompt"]
+            language = content.get("language", "python") # whether to use sql or python, default to python
 
-        if "additional_messages" in content:
-            prev_messages = content["additional_messages"]
-        else:
-            prev_messages = []
+            max_repair_attempts = content["max_repair_attempts"] if "max_repair_attempts" in content else 1
 
-        logger.info("== input tables ===>")
-        for table in input_tables:
-            logger.info(f"===> Table: {table['name']} (first 5 rows)")
-            logger.info(table['rows'][:5])
+            if "additional_messages" in content:
+                prev_messages = content["additional_messages"]
+            else:
+                prev_messages = []
 
-        logger.info("== user spec ===")
-        logger.info(new_fields)
-        logger.info(instruction)
+            logger.info("== input tables ===>")
+            for table in input_tables:
+                logger.info(f"===> Table: {table['name']} (first 5 rows)")
+                logger.info(table['rows'][:5])
 
-        mode = "transform"
-        if len(new_fields) == 0:
-            mode = "recommendation"
+            logger.info("== user spec ===")
+            logger.info(new_fields)
+            logger.info(instruction)
 
-        conn = db_manager.get_connection(resolve_session_id()) if language == "sql" else None
+            mode = "transform"
+            if len(new_fields) == 0:
+                mode = "recommendation"
 
-        if mode == "recommendation":
-            # now it's in recommendation mode
-            agent = SQLDataRecAgent(client=client, conn=conn) if language == "sql" else PythonDataRecAgent(client=client, exec_python_in_subprocess=current_app.config['CLI_ARGS']['exec_python_in_subprocess'])
-            results = agent.run(input_tables, instruction)
-        else:
-            agent = SQLDataTransformationAgent(client=client, conn=conn) if language == "sql" else PythonDataTransformationAgent(client=client, exec_python_in_subprocess=current_app.config['CLI_ARGS']['exec_python_in_subprocess'])
-            results = agent.run(input_tables, instruction, [field['name'] for field in new_fields], prev_messages)
+            conn = db_manager.get_connection(resolve_session_id()) if language == "sql" else None
 
-        repair_attempts = 0
-        while results[0]['status'] == 'error' and repair_attempts < max_repair_attempts: # try up to n times
-            error_message = results[0]['content']
-            new_instruction = f"We run into the following problem executing the code, please fix it:\n\n{error_message}\n\nPlease think step by step, reflect why the error happens and fix the code so that no more errors would occur."
-
-            prev_dialog = results[0]['dialog']
-
-            if mode == "transform":
-                results = agent.followup(input_tables, prev_dialog, [field['name'] for field in new_fields], new_instruction)
             if mode == "recommendation":
-                results = agent.followup(input_tables, prev_dialog, new_instruction)
+                # now it's in recommendation mode
+                agent = SQLDataRecAgent(client=client, conn=conn) if language == "sql" else PythonDataRecAgent(client=client, exec_python_in_subprocess=current_app.config['CLI_ARGS']['exec_python_in_subprocess'])
+                results = agent.run(input_tables, instruction)
+            else:
+                agent = SQLDataTransformationAgent(client=client, conn=conn) if language == "sql" else PythonDataTransformationAgent(client=client, exec_python_in_subprocess=current_app.config['CLI_ARGS']['exec_python_in_subprocess'])
+                results = agent.run(input_tables, instruction, [field['name'] for field in new_fields], prev_messages)
 
-            repair_attempts += 1
-        
-        if conn:
-            conn.close()
-        
-        response = flask.jsonify({ "token": token, "status": "ok", "results": results })
+            repair_attempts = 0
+            while results[0]['status'] == 'error' and repair_attempts < max_repair_attempts: # try up to n times
+                error_message = results[0]['content']
+                new_instruction = f"We run into the following problem executing the code, please fix it:\n\n{error_message}\n\nPlease think step by step, reflect why the error happens and fix the code so that no more errors would occur."
+
+                prev_dialog = results[0]['dialog']
+
+                if mode == "transform":
+                    results = agent.followup(input_tables, prev_dialog, [field['name'] for field in new_fields], new_instruction)
+                if mode == "recommendation":
+                    results = agent.followup(input_tables, prev_dialog, new_instruction)
+
+                repair_attempts += 1
+
+            if conn:
+                conn.close()
+
+            response = flask.jsonify({ "token": token, "status": "ok", "results": results })
+        except Exception as e:
+            logger.error(f"derive-data error: {e}", exc_info=True)
+            response = flask.jsonify({
+                "token": token,
+                "status": "error",
+                "results": [{"status": "error", "content": sanitize_model_error(str(e))}]
+            })
     else:
         response = flask.jsonify({ "token": "", "status": "error", "results": [] })
 
@@ -375,48 +383,55 @@ def refine_data():
 
     if request.is_json:
         logger.info("# request data: ")
-        content = request.get_json()        
+        content = request.get_json()
         token = content["token"]
 
+        try:
+            client = get_client(content['model'])
 
-        client = get_client(content['model'])
+            # each table is a dict with {"name": xxx, "rows": [...]}
+            input_tables = content["input_tables"]
+            output_fields = content["output_fields"]
+            dialog = content["dialog"]
+            new_instruction = content["new_instruction"]
+            max_repair_attempts = content.get("max_repair_attempts", 1)
+            language = content.get("language", "python") # whether to use sql or python, default to python
 
-        # each table is a dict with {"name": xxx, "rows": [...]}
-        input_tables = content["input_tables"]
-        output_fields = content["output_fields"]
-        dialog = content["dialog"]
-        new_instruction = content["new_instruction"]
-        max_repair_attempts = content.get("max_repair_attempts", 1)
-        language = content.get("language", "python") # whether to use sql or python, default to python
+            logger.info("== input tables ===>")
+            for table in input_tables:
+                logger.info(f"===> Table: {table['name']} (first 5 rows)")
+                logger.info(table['rows'][:5])
 
-        logger.info("== input tables ===>")
-        for table in input_tables:
-            logger.info(f"===> Table: {table['name']} (first 5 rows)")
-            logger.info(table['rows'][:5])
-        
-        logger.info("== user spec ===>")
-        logger.info(output_fields)
-        logger.info(new_instruction)
+            logger.info("== user spec ===>")
+            logger.info(output_fields)
+            logger.info(new_instruction)
 
-        conn = db_manager.get_connection(resolve_session_id()) if language == "sql" else None
+            conn = db_manager.get_connection(resolve_session_id()) if language == "sql" else None
 
-        # always resort to the data transform agent       
-        agent = SQLDataTransformationAgent(client=client, conn=conn) if language == "sql" else PythonDataTransformationAgent(client=client, exec_python_in_subprocess=current_app.config['CLI_ARGS']['exec_python_in_subprocess'])
-        results = agent.followup(input_tables, dialog, [field['name'] for field in output_fields], new_instruction)
+            # always resort to the data transform agent
+            agent = SQLDataTransformationAgent(client=client, conn=conn) if language == "sql" else PythonDataTransformationAgent(client=client, exec_python_in_subprocess=current_app.config['CLI_ARGS']['exec_python_in_subprocess'])
+            results = agent.followup(input_tables, dialog, [field['name'] for field in output_fields], new_instruction)
 
-        repair_attempts = 0
-        while results[0]['status'] == 'error' and repair_attempts < max_repair_attempts: # only try once
-            error_message = results[0]['content']
-            new_instruction = f"We run into the following problem executing the code, please fix it:\n\n{error_message}\n\nPlease think step by step, reflect why the error happens and fix the code so that no more errors would occur."
-            prev_dialog = results[0]['dialog']
+            repair_attempts = 0
+            while results[0]['status'] == 'error' and repair_attempts < max_repair_attempts: # only try once
+                error_message = results[0]['content']
+                new_instruction = f"We run into the following problem executing the code, please fix it:\n\n{error_message}\n\nPlease think step by step, reflect why the error happens and fix the code so that no more errors would occur."
+                prev_dialog = results[0]['dialog']
 
-            results = agent.followup(input_tables, prev_dialog, [field['name'] for field in output_fields], new_instruction)
-            repair_attempts += 1
+                results = agent.followup(input_tables, prev_dialog, [field['name'] for field in output_fields], new_instruction)
+                repair_attempts += 1
 
-        if conn:
-            conn.close()
+            if conn:
+                conn.close()
 
-        response = flask.jsonify({ "token": token, "status": "ok", "results": results})
+            response = flask.jsonify({ "token": token, "status": "ok", "results": results})
+        except Exception as e:
+            logger.error(f"refine-data error: {e}", exc_info=True)
+            response = flask.jsonify({
+                "token": token,
+                "status": "error",
+                "results": [{"status": "error", "content": sanitize_model_error(str(e))}]
+            })
     else:
         response = flask.jsonify({ "token": "", "status": "error", "results": []})
 
