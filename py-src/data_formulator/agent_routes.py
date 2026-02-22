@@ -50,14 +50,26 @@ agent_bp = Blueprint('agent', __name__, url_prefix='/api/agent')
 
 def get_client(model_config):
     for key in model_config:
-        model_config[key] = model_config[key].strip()
+        if isinstance(model_config[key], str):
+            model_config[key] = model_config[key].strip()
+
+    endpoint = model_config.get("endpoint", "")
+
+    # API キーは環境変数から取得（フロントエンドには送っていない）。
+    # 環境変数になければフロントエンドが送ってきた値をフォールバックとして使用
+    # （ユーザー自身がUIでキーを手入力する場合）。
+    api_key = (
+        os.getenv(f"{endpoint.upper()}_API_KEY")
+        or model_config.get("api_key")
+        or None
+    )
 
     client = Client(
-        model_config["endpoint"],
+        endpoint,
         model_config["model"],
-        model_config["api_key"] if "api_key" in model_config else None,
-        html.escape(model_config["api_base"]) if "api_base" in model_config else None,
-        model_config["api_version"] if "api_version" in model_config else None)
+        api_key,
+        html.escape(model_config["api_base"]) if model_config.get("api_base") else None,
+        model_config["api_version"] if model_config.get("api_version") else None)
 
     return client
 
