@@ -12,9 +12,8 @@ body {
 }
 
 #root {
-    position: relative;
-    height: calc(100% - 48px);
-    padding-top: 48px;
+    position: relative;  /* outer Box の containing block にする */
+    height: 100%;
     overflow: hidden;
 }
 

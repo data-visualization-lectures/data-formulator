@@ -28,8 +28,8 @@
     <script src="https://auth.dataviz.jp/lib/dataviz-auth-client.js"></script>
     <script src="https://auth.dataviz.jp/lib/dataviz-tool-header.js" defer></script>
     <style>
-      /* dataviz-header (48px fixed) の高さ分 #root に padding-top を確保 */
-      body { margin: 0; }
+      /* dataviz-header (48px) の分だけ body を押し下げて #root を y=48px に配置 */
+      body { padding-top: 48px; box-sizing: border-box; }
     </style>
   </head>
   <body>
