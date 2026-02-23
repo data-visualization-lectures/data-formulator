@@ -488,11 +488,13 @@ const ConfigDialog: React.FC = () => {
 }
 
 export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
+    const DEFAULT_HEADER_OFFSET = 48;
 
     const visViewMode = useSelector((state: DataFormulatorState) => state.visViewMode);
     const config = useSelector((state: DataFormulatorState) => state.config);
     const tables = useSelector((state: DataFormulatorState) => state.tables);
     const sessionId = useSelector((state: DataFormulatorState) => state.sessionId);
+    const [headerOffset, setHeaderOffset] = useState<number>(DEFAULT_HEADER_OFFSET);
 
     // if the user has logged in
     const [userInfo, setUserInfo] = useState<{ name: string, userId: string } | undefined>(undefined);
@@ -661,6 +663,27 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
         dispatch(getSessionId());
     }, []);
 
+    useEffect(() => {
+        const calcHeaderOffset = () => {
+            const globalHeader = document.querySelector('dataviz-header') as HTMLElement | null;
+            const toolHeader = document.querySelector('dataviz-tool-header') as HTMLElement | null;
+            const globalHeaderHeight = globalHeader ? Math.ceil(globalHeader.getBoundingClientRect().height) : 0;
+            const toolHeaderHeight = toolHeader ? Math.ceil(toolHeader.getBoundingClientRect().height) : 0;
+            const nextOffset = globalHeaderHeight + toolHeaderHeight || DEFAULT_HEADER_OFFSET;
+            setHeaderOffset((prev) => prev === nextOffset ? prev : nextOffset);
+        };
+
+        calcHeaderOffset();
+        const observer = new MutationObserver(calcHeaderOffset);
+        observer.observe(document.body, { childList: true, subtree: true });
+        window.addEventListener('resize', calcHeaderOffset);
+
+        return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', calcHeaderOffset);
+        };
+    }, []);
+
     let theme = createTheme({
         typography: {
             fontFamily: [
@@ -802,7 +825,7 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
     let app =
         <Box sx={{
             position: 'fixed',
-            top: 48,
+            top: headerOffset,
             left: 0,
             right: 0,
             bottom: 0,
