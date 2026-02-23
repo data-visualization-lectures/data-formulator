@@ -488,15 +488,10 @@ const ConfigDialog: React.FC = () => {
 }
 
 export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
-    const DEFAULT_HEADER_OFFSET = 48;
-    const TOP_BAND_SCAN_LIMIT = 240;
-
     const visViewMode = useSelector((state: DataFormulatorState) => state.visViewMode);
     const config = useSelector((state: DataFormulatorState) => state.config);
     const tables = useSelector((state: DataFormulatorState) => state.tables);
     const sessionId = useSelector((state: DataFormulatorState) => state.sessionId);
-    const [headerOffset, setHeaderOffset] = useState<number>(DEFAULT_HEADER_OFFSET);
-    const appRootRef = React.useRef<HTMLDivElement | null>(null);
 
     // if the user has logged in
     const [userInfo, setUserInfo] = useState<{ name: string, userId: string } | undefined>(undefined);
@@ -649,43 +644,6 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
         dispatch(getSessionId());
     }, []);
 
-    useEffect(() => {
-        const calcHeaderOffset = () => {
-            const appRoot = appRootRef.current;
-            const topFixedBands = Array.from(document.body.querySelectorAll<HTMLElement>('*'))
-                .filter((el) => {
-                    if (appRoot && (el === appRoot || appRoot.contains(el))) return false;
-                    const style = window.getComputedStyle(el);
-                    if (style.position !== 'fixed' && style.position !== 'sticky') return false;
-                    if (style.display === 'none' || style.visibility === 'hidden') return false;
-                    const rect = el.getBoundingClientRect();
-                    if (rect.width < window.innerWidth * 0.5) return false;
-                    if (rect.height <= 0) return false;
-                    if (rect.bottom <= 0) return false;
-                    if (rect.top >= TOP_BAND_SCAN_LIMIT) return false;
-                    return rect.top <= TOP_BAND_SCAN_LIMIT;
-                });
-
-            const occupiedTopBand = topFixedBands.reduce((maxBottom, el) => {
-                const rect = el.getBoundingClientRect();
-                return Math.max(maxBottom, rect.bottom);
-            }, 0);
-
-            const nextOffset = Math.max(DEFAULT_HEADER_OFFSET, Math.ceil(occupiedTopBand));
-            setHeaderOffset((prev) => prev === nextOffset ? prev : nextOffset);
-        };
-
-        calcHeaderOffset();
-        const observer = new MutationObserver(calcHeaderOffset);
-        observer.observe(document.body, { childList: true, subtree: true });
-        window.addEventListener('resize', calcHeaderOffset);
-
-        return () => {
-            observer.disconnect();
-            window.removeEventListener('resize', calcHeaderOffset);
-        };
-    }, []);
-
     let theme = createTheme({
         typography: {
             fontFamily: [
@@ -826,8 +784,8 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
 
     let app =
         <Box sx={{
-            position: 'fixed',
-            top: headerOffset,
+            position: 'absolute',
+            top: 0,
             left: 0,
             right: 0,
             bottom: 0,
@@ -835,7 +793,7 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
                 minWidth: '1000px',
                 minHeight: '800px'
             }
-        }} ref={appRootRef}>
+        }}>
             <Box sx={{
                 display: 'flex',
                 flexDirection: 'column',
