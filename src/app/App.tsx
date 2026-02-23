@@ -489,7 +489,7 @@ const ConfigDialog: React.FC = () => {
 
 export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
     const DEFAULT_HEADER_OFFSET = 48;
-    const TOP_BAND_SCAN_LIMIT = 200;
+    const TOP_BAND_SCAN_LIMIT = 240;
 
     const visViewMode = useSelector((state: DataFormulatorState) => state.visViewMode);
     const config = useSelector((state: DataFormulatorState) => state.config);
@@ -672,27 +672,20 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
                 .filter((el) => {
                     if (appRoot && (el === appRoot || appRoot.contains(el))) return false;
                     const style = window.getComputedStyle(el);
-                    if (style.position !== 'fixed') return false;
+                    if (style.position !== 'fixed' && style.position !== 'sticky') return false;
                     if (style.display === 'none' || style.visibility === 'hidden') return false;
                     const rect = el.getBoundingClientRect();
                     if (rect.width < window.innerWidth * 0.5) return false;
                     if (rect.height <= 0) return false;
                     if (rect.bottom <= 0) return false;
                     if (rect.top >= TOP_BAND_SCAN_LIMIT) return false;
-                    return true;
-                })
-                .map((el) => {
-                    const rect = el.getBoundingClientRect();
-                    return { top: rect.top, bottom: rect.bottom };
-                })
-                .sort((a, b) => a.top - b.top);
+                    return rect.top <= TOP_BAND_SCAN_LIMIT;
+                });
 
-            let occupiedTopBand = 0;
-            for (const band of topFixedBands) {
-                if (band.top <= occupiedTopBand + 2) {
-                    occupiedTopBand = Math.max(occupiedTopBand, band.bottom);
-                }
-            }
+            const occupiedTopBand = topFixedBands.reduce((maxBottom, el) => {
+                const rect = el.getBoundingClientRect();
+                return Math.max(maxBottom, rect.bottom);
+            }, 0);
 
             const nextOffset = Math.max(DEFAULT_HEADER_OFFSET, Math.ceil(occupiedTopBand));
             setHeaderOffset((prev) => prev === nextOffset ? prev : nextOffset);
