@@ -56,7 +56,6 @@ Vercel は `dist/` ディレクトリを標準出力先とするため変更。
 <!-- dataviz.jp 認証基盤 -->
 <script src="https://auth.dataviz.jp/lib/supabase.js"></script>
 <script src="https://auth.dataviz.jp/lib/dataviz-auth-client.js"></script>
-<script src="https://auth.dataviz.jp/lib/dataviz-tool-header.js" defer></script>
 <style>
   body { padding-top: 48px; }
 </style>
