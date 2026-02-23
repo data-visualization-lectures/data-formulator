@@ -802,7 +802,7 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
     let app =
         <Box sx={{
             position: 'fixed',
-            top: 104,
+            top: 48,
             left: 0,
             right: 0,
             bottom: 0,
