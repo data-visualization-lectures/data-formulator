@@ -624,8 +624,22 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
 
     // dataviz-tool-header のセットアップ
     useEffect(() => {
+        const ensureToolHeaderElement = () => {
+            let toolHeader = document.querySelector('dataviz-tool-header') as any;
+            if (toolHeader) return toolHeader;
+
+            toolHeader = document.createElement('dataviz-tool-header');
+            const globalHeader = document.querySelector('dataviz-header');
+            if (globalHeader && globalHeader.parentElement) {
+                globalHeader.insertAdjacentElement('afterend', toolHeader);
+            } else {
+                document.body.prepend(toolHeader);
+            }
+            return toolHeader;
+        };
+
         const setup = () => {
-            const toolHeader = document.querySelector('dataviz-tool-header') as any;
+            const toolHeader = ensureToolHeaderElement();
             if (!toolHeader) return;
             toolHeader.setConfig({
                 logo: { type: 'text', text: 'Data Formulator' },
