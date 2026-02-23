@@ -489,12 +489,14 @@ const ConfigDialog: React.FC = () => {
 
 export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
     const DEFAULT_HEADER_OFFSET = 48;
+    const TOP_BAND_SCAN_LIMIT = 200;
 
     const visViewMode = useSelector((state: DataFormulatorState) => state.visViewMode);
     const config = useSelector((state: DataFormulatorState) => state.config);
     const tables = useSelector((state: DataFormulatorState) => state.tables);
     const sessionId = useSelector((state: DataFormulatorState) => state.sessionId);
     const [headerOffset, setHeaderOffset] = useState<number>(DEFAULT_HEADER_OFFSET);
+    const appRootRef = React.useRef<HTMLDivElement | null>(null);
 
     // if the user has logged in
     const [userInfo, setUserInfo] = useState<{ name: string, userId: string } | undefined>(undefined);
@@ -665,11 +667,34 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
 
     useEffect(() => {
         const calcHeaderOffset = () => {
-            const globalHeader = document.querySelector('dataviz-header') as HTMLElement | null;
-            const toolHeader = document.querySelector('dataviz-tool-header') as HTMLElement | null;
-            const globalHeaderHeight = globalHeader ? Math.ceil(globalHeader.getBoundingClientRect().height) : 0;
-            const toolHeaderHeight = toolHeader ? Math.ceil(toolHeader.getBoundingClientRect().height) : 0;
-            const nextOffset = globalHeaderHeight + toolHeaderHeight || DEFAULT_HEADER_OFFSET;
+            const appRoot = appRootRef.current;
+            const topFixedBands = Array.from(document.body.querySelectorAll<HTMLElement>('*'))
+                .filter((el) => {
+                    if (appRoot && (el === appRoot || appRoot.contains(el))) return false;
+                    const style = window.getComputedStyle(el);
+                    if (style.position !== 'fixed') return false;
+                    if (style.display === 'none' || style.visibility === 'hidden') return false;
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width < window.innerWidth * 0.5) return false;
+                    if (rect.height <= 0) return false;
+                    if (rect.bottom <= 0) return false;
+                    if (rect.top >= TOP_BAND_SCAN_LIMIT) return false;
+                    return true;
+                })
+                .map((el) => {
+                    const rect = el.getBoundingClientRect();
+                    return { top: rect.top, bottom: rect.bottom };
+                })
+                .sort((a, b) => a.top - b.top);
+
+            let occupiedTopBand = 0;
+            for (const band of topFixedBands) {
+                if (band.top <= occupiedTopBand + 2) {
+                    occupiedTopBand = Math.max(occupiedTopBand, band.bottom);
+                }
+            }
+
+            const nextOffset = Math.max(DEFAULT_HEADER_OFFSET, Math.ceil(occupiedTopBand));
             setHeaderOffset((prev) => prev === nextOffset ? prev : nextOffset);
         };
 
@@ -833,7 +858,7 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
                 minWidth: '1000px',
                 minHeight: '800px'
             }
-        }}>
+        }} ref={appRootRef}>
             <Box sx={{
                 display: 'flex',
                 flexDirection: 'column',
