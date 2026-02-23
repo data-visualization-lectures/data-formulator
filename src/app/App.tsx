@@ -497,6 +497,7 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
     const [userInfo, setUserInfo] = useState<{ name: string, userId: string } | undefined>(undefined);
 
     const [popupConfig, setPopupConfig] = useState<PopupConfig>({});
+    const [globalHeaderHeight, setGlobalHeaderHeight] = useState<number>(48);
 
     // プロジェクト保存/読込
     const fullStateJson = useSelector((state: DataFormulatorState) => JSON.stringify(state));
@@ -644,6 +645,33 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
         dispatch(getSessionId());
     }, []);
 
+    // dataviz-header の高さを追従し、ツールヘッダーとの重なりを防ぐ
+    useEffect(() => {
+        let resizeObserver: ResizeObserver | undefined;
+        let intervalId: number | undefined;
+
+        const updateHeaderHeight = () => {
+            const headerElement = document.querySelector('dataviz-header') as HTMLElement | null;
+            const nextHeight = Math.max(48, Math.ceil(headerElement?.getBoundingClientRect().height ?? 0));
+            setGlobalHeaderHeight(prev => (prev === nextHeight ? prev : nextHeight));
+
+            if (!resizeObserver && headerElement && 'ResizeObserver' in window) {
+                resizeObserver = new ResizeObserver(() => updateHeaderHeight());
+                resizeObserver.observe(headerElement);
+            }
+        };
+
+        updateHeaderHeight();
+        intervalId = window.setInterval(updateHeaderHeight, 500);
+        window.addEventListener('resize', updateHeaderHeight);
+
+        return () => {
+            window.removeEventListener('resize', updateHeaderHeight);
+            if (intervalId) window.clearInterval(intervalId);
+            resizeObserver?.disconnect();
+        };
+    }, []);
+
     let theme = createTheme({
         typography: {
             fontFamily: [
@@ -702,7 +730,7 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
     )
 
     let appBar = [
-        <AppBar className="app-bar" position="static" key="app-bar-main">
+        <AppBar component="div" position="static" key="app-bar-main">
             <Toolbar variant="dense">
                 <Button href={"/"} sx={{
                     display: "flex", flexDirection: "row", textTransform: "none",
@@ -785,7 +813,7 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
     let app =
         <Box sx={{
             position: 'absolute',
-            top: 0,
+            top: `${globalHeaderHeight}px`,
             left: 0,
             right: 0,
             bottom: 0,
