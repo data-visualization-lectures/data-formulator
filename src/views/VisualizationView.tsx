@@ -622,9 +622,9 @@ export const ChartEditorFC: FC<{  cachedCandidates: DictTable[],
                 {Object.entries(focusedChart.encodingMap).filter(entry => entry[1].fieldID != undefined).length == 0  ?
                     <Typography component="span" fontSize="inherit" >
                         {focusedChart.chartType == "Table" ? 
-                            "Provide a data transformation prompt to create a new data" 
-                            : (focusedChart.chartType == "Auto" ? "Say something to get chart recommendations!" 
-                                    : "To create a chart, put data fields to chart builder.")}
+                            "新しいデータを作成するためのデータ変換プロンプトを提供してください" 
+                            : (focusedChart.chartType == "Auto" ? "チャートのおすすめをもらうために、何か入力してください！" 
+                                    : "チャートを作成するには、データ・フィールドをチャート・ビルダーに入れてください。")}
                     </Typography> :
                     <Typography component="span" fontSize="inherit">
                         Once you provided all fields, "formulate" to create the visualization.</Typography>}
