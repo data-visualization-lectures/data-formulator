@@ -510,6 +510,15 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
 
     const DATAVIZ_API = 'https://api.dataviz.jp';
     const APP_NAME = 'data-formulator';
+    const dispatch = useDispatch<AppDispatch>();
+
+    const showNotice = (type: 'success' | 'error' | 'info', value: string) => {
+        dispatch(dfActions.addMessages({
+            type,
+            timestamp: Date.now(),
+            value,
+        }));
+    };
 
     const saveProject = async () => {
         const token = await getSupabaseToken();
@@ -530,7 +539,6 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify(body),
         });
-        const toolHeader = document.querySelector('dataviz-tool-header') as any;
         if (response.ok) {
             const saved = await response.json();
             if (!existingProjectId && saved.project?.id) {
@@ -538,9 +546,9 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
                 newUrl.searchParams.set('project_id', saved.project.id);
                 window.history.replaceState({}, '', newUrl.toString());
             }
-            toolHeader?.showMessage('プロジェクトを保存しました', 'success');
+            showNotice('success', 'プロジェクトを保存しました');
         } else {
-            toolHeader?.showMessage('保存に失敗しました', 'error');
+            showNotice('error', '保存に失敗しました');
         }
     };
 
@@ -570,16 +578,12 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
             const newUrl = new URL(window.location.href);
             newUrl.searchParams.set('project_id', projectId);
             window.history.replaceState({}, '', newUrl.toString());
-            const toolHeader = document.querySelector('dataviz-tool-header') as any;
-            toolHeader?.showMessage('プロジェクトを読み込みました', 'success');
+            showNotice('success', 'プロジェクトを読み込みました');
             setProjectLoadDialogOpen(false);
         } catch {
-            const toolHeader = document.querySelector('dataviz-tool-header') as any;
-            toolHeader?.showMessage('読み込みに失敗しました', 'error');
+            showNotice('error', '読み込みに失敗しました');
         }
     };
-
-    const dispatch = useDispatch<AppDispatch>();
 
     useEffect(() => {
         const subscription: ActionSubscription = {
@@ -620,40 +624,6 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
             }
         };
         checkAuth();
-    }, []);
-
-    // dataviz-tool-header のセットアップ
-    useEffect(() => {
-        const ensureToolHeaderElement = () => {
-            let toolHeader = document.querySelector('dataviz-tool-header') as any;
-            if (toolHeader) return toolHeader;
-
-            toolHeader = document.createElement('dataviz-tool-header');
-            const globalHeader = document.querySelector('dataviz-header');
-            if (globalHeader && globalHeader.parentElement) {
-                globalHeader.insertAdjacentElement('afterend', toolHeader);
-            } else {
-                document.body.prepend(toolHeader);
-            }
-            return toolHeader;
-        };
-
-        const setup = () => {
-            const toolHeader = ensureToolHeaderElement();
-            if (!toolHeader) return;
-            toolHeader.setConfig({
-                logo: { type: 'text', text: 'Data Formulator' },
-                buttons: [
-                    { label: '保存', action: saveProject },
-                    { label: '読込', action: loadProject },
-                ],
-            });
-        };
-        if (customElements.get('dataviz-tool-header')) {
-            setup();
-        } else {
-            customElements.whenDefined('dataviz-tool-header').then(setup);
-        }
     }, []);
 
     // ?project_id URLパラメータで起動時に自動読込
